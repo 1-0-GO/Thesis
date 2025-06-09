@@ -1,0 +1,15 @@
+1. y = exp(inv(D))
+2. y = 2.9513 * inv(D)
+3. y = (inv(D) * 4.3322) - P
+4. y = (inv(D) * 8.3787)
+5. y = relu((exp(H) - (T * D)) + T) - H + D
+6. y = exp(H) - tanh((inv(-1.1282 + D) * ((H * T) - D)))
+7. y = tanh(((-228.48 + (H + 0.3514) * D)) - 260.62) + exp(H)
+8. y = exp(H) + tanh((-142.55 * (D * (H + 0.34261))) - 161.03)
+9. y = exp(H) + (tanh((-142.55 * (D * (H + 0.34261))) - 161.03) * 1.1337)
+10. y = exp(H) + ((P - log(P)) * tanh((((H + 0.34279) * D) - 163.51) - 184.25))
+11. y = exp(H) + tanh((-142.55 * (D * (H + 0.34261))) - 161.03) + saturation(T, P)
+12. y = exp(H) + tanh((-142.55 * (D * (H + 0.34261))) - 161.03) + saturation(T + D, P)
+13. y = exp(H) + tanh((-142.55 * (D * (H + 0.34261))) - 161.03) + saturation((T + D) + D, P)
+14. y = exp(H) + tanh((-142.55 * (D * (H + 0.34261))) - 161.03) + saturation((P + T) + inv(S1), P)
+15. y = exp(H) + tanh((-142.55 * (D * (H + 0.34261))) - 161.03) + saturation(((T + D) - H) + inv(S1), P)

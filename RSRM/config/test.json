@@ -1,0 +1,54 @@
+{
+  "train_set": "None",
+  "test_set": "None",
+  "base": {
+    "verbose": true,
+    "epoch": 5,
+    "has_const": true,
+    "const_optimize": true,
+    "tokens": [
+      "Add",
+      "Sub",
+      "Mul",
+      "Inv",
+      "Pow",
+      "Exp",
+      "Logistic"
+    ],
+    "reward_end_threshold": 1e-99
+  },
+  "mcts": {
+    "q_learning_rate": 0.001,
+    "q_learning_discount": 0.95,
+    "q_learning_epsilon": 0.6,
+    "mcts_const": 1.4142135623730951,
+    "mcts_min_visits": 10,
+    "max_height": 5,
+    "max_const": 10,
+    "max_token": 20,
+    "max_expr_num": 250,
+    "token_discount": 0.99,
+    "times": 10
+  },
+  "gp": {
+    "tournsize": 10,
+    "max_height": 10,
+    "max_const": 10,
+    "cxpb": 0.1,
+    "mutpb": 0.5,
+    "pops": 500,
+    "times": 3,
+    "hof_size": 30,
+    "token_discount": 0.99
+  },
+  "msdb": {
+    "max_expr_num": 50,
+    "expr_ratio": 0.1,
+    "token_ratio": 0.5,
+    "form_type": [
+      "Add",
+      "Mul",
+      "Pow"
+    ]
+  }
+}

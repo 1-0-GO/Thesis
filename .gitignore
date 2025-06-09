@@ -1,0 +1,18 @@
+*.tlp
+*.pyc
+RSRM/output/
+RSRM/data/nguyen/
+RSRM/data/Experiments/
+Original Data/
+PySR/Experiments/
+saved_data_old/
+Treated results/
+
+*.zip
+*.tar.gz
+*.7z
+*.rar
+*.bak
+*.log
+*.xlsx
+*.pkl
