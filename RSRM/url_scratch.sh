@@ -207,8 +207,6 @@ done
 
 DEVICE_ARGS="+arch.learner.device_ids=[$LEARNERS]"
 DEVICE_ARGS="+arch.actor.device_ids=[$ACTORS] $DEVICE_ARGS"
-TARGET_ENT_RATIO=$(bc -l <<< 2000000/$STEPS)
-TARGET_ENT_RATIO=$(printf "%.2f" $TARGET_ENT_RATIO)
 UNIQUE_TOKEN=$(date +"%Y%m%d%H%M%S")
 
 # Second Section: sbtach script as a here document
@@ -256,13 +254,12 @@ wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
 bash \$HOME/Miniconda3-latest-Linux-x86_64.sh -b -p \$HOME/miniconda3  # Install without any prompts
 export PATH=\$HOME/miniconda3/bin:\$PATH  # Add conda to path
 
-source \$HOME/.bashrc  # run `conda init`
-conda init bash  # run `conda init`, needed?
-source \$HOME/.bashrc  # run `conda init`, needed?
-conda update -n base -c defaults conda -y  # Update conda
+source \$HOME/.bashrc  
+conda init bash  
+source \$HOME/.bashrc  
+conda update -n base -c defaults conda -y  
 
-# Copy project (already in cfs) and install conda env from `environment.yml`
-cp -r /cfs/home/u035701/dev/RSRM \$HOME/RSRM
+cp -r /cfs/home/u035701/home/dev/RSRM \$HOME/RSRM
 cd \$HOME/RSRM
 conda env create --file environment.yml
 export USER_CONDA_ENV=RSRM  # conda env name
