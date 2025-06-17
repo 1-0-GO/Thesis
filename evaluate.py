@@ -687,7 +687,8 @@ def loocv(equation: Equation, X, y, preprocess=normalize_by_iqr, prefitted_param
     return np.array(all_targets), np.array(all_predictions), all_params, used_precomputed
 
 def replace_numeric_parameters(equation):
-    pattern = r'(?<![a-zA-Z_.])-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?(?![a-zA-Z_.])'
+    # Pattern to match numbers that are NOT simple (1 decimal place or less)
+    pattern = r'(?<![a-zA-Z_.])-?(?:\d+\.\d{2,}|\d*\.\d+[eE][+-]?\d+|\d+[eE][+-]?\d+)(?![a-zA-Z_.])'
     return re.sub(pattern, 'C', equation)
 
 def replace_optimized_parameters(equation_str, optimized_params, precision=6):
@@ -869,9 +870,9 @@ def compute_elbow_metric(df, complexity_col='complexity', tt_col='tt', maximize_
     return df_sorted
 
 
-def plot_pareto_frontier(dfs, x: str, y: str, scatter=False, minimize_x=True, minimize_y=True):
-    if not isinstance(dfs[0], list):
-        dfs = [dfs]
+def plot_pareto_frontier(dfs, x: str, y: str, scatter=True, minimize_x=True, minimize_y=True):
+    if not isinstance(dfs, list):
+        dfs = [('Regressor', dfs)]
 
     plt.figure(figsize=(10, 6))
     colors = plt.cm.tab10.colors
@@ -900,3 +901,65 @@ def plot_pareto_frontier(dfs, x: str, y: str, scatter=False, minimize_x=True, mi
     plt.ylabel(f'{y}')
     plt.grid(True)
     plt.legend()
+
+import pandas as pd
+
+def df_to_latex(
+    df,
+    filename=None,
+    index=False,
+    escape=True,
+    float_format="%.4f",
+    bold_max=False,
+    bold_min=False,
+    caption="",
+    label="tab:",
+    position="h!"
+):
+    """
+    Convert a DataFrame to LaTeX with optional styling.
+    
+    Args:
+        df (pd.DataFrame): Input DataFrame.
+        filename (str): If provided, saves LaTeX to a file. Default=None.
+        index (bool): Whether to include the index. Default=False.
+        escape (bool): Escape special LaTeX characters. Default=True.
+        float_format (str): Format for floating-point numbers (e.g., "%.2f"). Default="%.4f".
+        bold_max (bool): Bold the maximum value in each column. Default=False.
+        bold_min (bool): Bold the minimum value in each column. Default=False.
+        caption (str): Table caption. Default="".
+        label (str): LaTeX label (for referencing). Default="tab:".
+        position (str): LaTeX table placement (e.g., "h!"). Default="h!".
+    
+    Returns:
+        str: LaTeX table code.
+    """
+    # Style the DataFrame (bold max/min if requested)
+    styled_df = df.copy()
+    if bold_max or bold_min:
+        def highlight_extrema(x):
+            x = x.astype(float)
+            styles = pd.Series("", index=x.index)
+            if bold_max:
+                styles[x.idxmax()] = "\\textbf{%.4f}" % x.max()
+            if bold_min:
+                styles[x.idxmin()] = "\\textbf{%.4f}" % x.min()
+            return styles
+        styled_df = styled_df.style.apply(highlight_extrema)
+    
+    # Convert to LaTeX
+    latex_code = styled_df.to_latex(
+        index=index,
+        escape=escape,
+        float_format=float_format,
+        caption=caption,
+        label=label,
+        position=position
+    )
+    
+    # Save to file if requested
+    if filename:
+        with open(filename, "w") as f:
+            f.write(latex_code)
+    
+    return latex_code

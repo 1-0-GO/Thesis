@@ -233,24 +233,24 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
     """
     warnings.filterwarnings('ignore')
     config_s.symbol_tol_num += 1
-    symbols = sp.sympify(symbols)
-    symbols_xpand = str(sp.expand(symbols))
-    symbols = str(symbols)
-    if symbols.count('zoo') or symbols.count('nan'):
-        return 1e999, symbols
-    symbols_xpand = 'C*' + ' + C*'.join(symbols_xpand.split(' + '))
-    c_len = symbols_xpand.count('C')
-    symbols_xpand = prune_poly_c(symbols_xpand)
-    C = [f'C{i}' for i in range(1, c_len + 1)]
-    symbols_xpand = symbols_xpand.replace('C', 'PPP')  # replace C with C1,C2...
-    for i in range(1, c_len + 1):
-        symbols_xpand = symbols_xpand.replace('PPP', f'C{i}', 1)
-    gradient_expr = None
+    try:
+        symbols = sp.sympify(symbols)
+        symbols_xpand = str(sp.expand(symbols))
+        symbols = str(symbols)
+        if symbols.count('zoo') or symbols.count('nan'):
+            return 1e999, symbols
+        symbols_xpand = 'C*' + ' + C*'.join(symbols_xpand.split(' + '))
+        c_len = symbols_xpand.count('C')
+        symbols_xpand = prune_poly_c(symbols_xpand)
+        C = [f'C{i}' for i in range(1, c_len + 1)]
+        symbols_xpand = symbols_xpand.replace('C', 'PPP')  # replace C with C1,C2...
+        for i in range(1, c_len + 1):
+            symbols_xpand = symbols_xpand.replace('PPP', f'C{i}', 1)
+        gradient_expr = None
     # gradient_expr = [sp.diff(symbols_xpand, c) for c in C]
     # print(gradient_expr)
     # if any(len(g) > 100 for g in str(gradient_expr)):
     #     return 1e999, symbols_xpand
-    try:
         fitted_expressions_per_group = {}
         total_loss = 0
         num_elements_dataset = 0
@@ -294,5 +294,9 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         print("**Value Error** ", end="")
     except MemoryError as e:
         print("**Memory Error** ", end="")
+    except SyntaxError as e:
+        print("**Syntax Error** ", end="")
+    except Exception as e:
+        pass
     # print(f"Equation = {symbols}.")
     return 1e999, None
