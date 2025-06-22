@@ -217,6 +217,8 @@ UNIQUE_TOKEN=$(date +"%Y%m%d%H%M%S")
 sbatch <<EOF
 #!/bin/bash
 #SBATCH --job-name=URL--$METHOD_SCRIPT--$ENV # create a short name for your job
+#SBATCH --output=job_%A_%a.out
+#SBATCH --array=0-27%7  # adjust based on number of combinations
 #SBATCH --nodes=1                       # node count
 #SBATCH --ntasks=1                      # total number of tasks across all nodes
 #SBATCH --cpus-per-task=$USER_CPU            # cpu-cores per task (>1 if multi-threaded tasks)
@@ -265,7 +267,7 @@ export USER_CONDA_ENV=RSRM  # conda env name
 conda activate \$USER_CONDA_ENV
 
 # Run experiment script
-python main.py --task GDM --num_test 1 --json_path config/ecology.json --threshold 1e-10 --fit A,T --split Archipelago,species
+python run_slurm.py \$SLURM_ARRAY_TASK_ID
 
 
 mkdir -p /cfs/home/u035701/out/$UNIQUE_TOKEN
