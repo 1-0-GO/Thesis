@@ -45,7 +45,7 @@ def get_expression(strs: str) -> Expression:
         "Pi": Expression(0, np.pi, 'pi'),
         "One": Expression(0, 1, '1'),   
         # New functions
-        "Tanh": Expression(1, np.tanh, lambda x: f"tanh(C*({x}))"),
+        "Tanh": Expression(1, np.tanh, lambda x: f"tanh({x} - C)"),
         "Denom": Expression(1, np.tanh, lambda x: f"1/( C*({x}) - 1)"),
         "Inv": Expression(1, lambda x: 1 / (x + 1e-6), lambda x: f"({x})**(-1)"),
         "Ond": Expression(2, lambda x, y: np.where(x>0, y, 0), lambda x, y: f""),
