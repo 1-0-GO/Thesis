@@ -15,6 +15,7 @@ threshold = 1e-10
 fit = ['A', 'T']
 split = ['Archipelago', 'species']
 output = ""
+n_groups_out = 2
 
 # Get SLURM_ARRAY_TASK_ID from command line or environment
 try:
@@ -29,7 +30,7 @@ df = df.loc[df['species'] != 'Spiderd (endemics)']
 # Grouping and preparing combinations
 grouped = dict(tuple(df.groupby(split)))
 group_keys = list(grouped.keys())
-N = max(1, len(group_keys) - 1)
+N = max(1, len(group_keys) - n_groups_out)
 group_combinations = list(combinations(group_keys, N))
 
 if idx >= len(group_combinations):

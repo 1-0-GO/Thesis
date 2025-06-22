@@ -217,7 +217,7 @@ UNIQUE_TOKEN=$(date +"%Y%m%d%H%M%S")
 sbatch <<EOF
 #!/bin/bash
 #SBATCH --job-name=URL--$METHOD_SCRIPT--$ENV # create a short name for your job
-#SBATCH --output=job_%A_%a.out
+#SBATCH --output=logs/job_%A_%a.out
 #SBATCH --array=0-27%7  # adjust based on number of combinations
 #SBATCH --nodes=1                       # node count
 #SBATCH --ntasks=1                      # total number of tasks across all nodes
