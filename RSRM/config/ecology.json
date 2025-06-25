@@ -3,7 +3,7 @@
   "test_set": "None",
   "base": {
     "verbose": true,
-    "epoch": 1,
+    "epoch": 40,
     "loss": "Poisson",
     "has_const": false,
     "const_optimize": true,
@@ -14,7 +14,8 @@
       "Inv",
       "Exp",
       "Log",
-      "Sqrt"
+      "Sqrt",
+      "Denom"
     ],
     "reward_end_threshold": 1e-99
   },
@@ -24,21 +25,21 @@
     "q_learning_epsilon": 0.6,
     "mcts_const": 1.4142135623730951,
     "mcts_min_visits": 10,
-    "max_height": 5,
+    "max_height": 4,
     "max_const": 7,
     "max_token": 15,
     "max_expr_num": 250,
     "token_discount": 0.99,
-    "times": 1
+    "times": 20
   },
   "gp": {
     "tournsize": 10,
-    "max_height": 10,
+    "max_height": 8,
     "max_const": 4,
     "cxpb": 0.1,
     "mutpb": 0.5,
     "pops": 500,
-    "times": 1,
+    "times": 6,
     "hof_size": 20,
     "token_discount": 0.99
   },

@@ -224,7 +224,7 @@ sbatch <<EOF
 #SBATCH --cpus-per-task=$USER_CPU            # cpu-cores per task (>1 if multi-threaded tasks)
 #SBATCH --mem="$USER_MEM"G                   # total memory per node (4 GB per cpu-core is default)
 #SBATCH --export=ALL                    # export all environment variables
-#SBATCH --time=24:00:00                 # total run time limit (HH:MM:SS)
+#SBATCH --time=96:00:00                 # total run time limit (HH:MM:SS)
 #SBATCH --mail-type=begin               # send mail when job begins
 #SBATCH --mail-type=end                 # send mail when job ends
 #SBATCH --mail-type=fail                # send mail if job fails
@@ -267,7 +267,7 @@ export USER_CONDA_ENV=RSRM  # conda env name
 conda activate \$USER_CONDA_ENV
 
 # Run experiment script
-python run_slurm.py \$SLURM_ARRAY_TASK_ID
+python -u run_slurm.py \$SLURM_ARRAY_TASK_ID
 
 
 mkdir -p /cfs/home/u035701/out/$UNIQUE_TOKEN
