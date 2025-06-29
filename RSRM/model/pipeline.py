@@ -63,9 +63,11 @@ class Pipeline:
                     self.rl2.clear()
                     sym_tol2.clear()
                 if tms % 10 <= 8:
+                    # print("---- RL ----")
                     self.rl1.run()
                     pop = self.rl1.get_expressions()
                     # all_pops.update([tuple(p) for p in pop])
+                    # print("---- GP ----")
                     pop = self.ga1.ga_play(pop)
                     # all_pops.update([tuple(p) for p in pop])
                     sym_tol1 += pop
