@@ -10,7 +10,6 @@ import warnings
 
 from model.config import Config
 from model.expr_utils.utils import time_limit, FinishException, Solution, complexity_calculation
-from model.expr_utils.loss import RMSE
 
 math_namespace = {
     "sqrt": sqrt,
@@ -29,6 +28,7 @@ math_namespace = {
     "arcsin": arcsin,
     "arctan": arctan,
 }
+
 
 def process_symbol_with_C(symbols: str, c: np.ndarray) -> str:
     """
@@ -64,19 +64,6 @@ def prune_poly_c(eq: str) -> str:
         eq = eq.replace('-C', 'C')
         eq = eq.replace('C*C', 'C')
         eq = eq.replace('exp(C)', 'C')
-        
-        # for _ in range(5):
-            # for _ in range(5):
-                # eq = eq.replace('arcsin(C)', 'C')
-                # eq = eq.replace('arccos(C)', 'C')
-                # eq = eq.replace('sin(C)', 'C')
-                # eq = eq.replace('cos(C)', 'C')
-                # eq = eq.replace('sqrt(C)', 'C')
-                # eq = eq.replace('log(C)', 'C')
-                # eq = eq.replace('tanh(C)', 'C')
-                # eq = eq.replace('-C', 'C')
-                # eq = eq.replace('C*C', 'C')
-                # eq = eq.replace('exp(C)', 'C')
         eq = str(sp.sympify(eq))
         if eq == eq_l:
             break
@@ -118,6 +105,7 @@ def cal_expression_single(symbols: str, x: np.ndarray, t: np.ndarray, c: Optiona
             return None, 4.56e9
     return cal, ans
 
+
 def cal_loss_expression_single(symbols: str, x: np.ndarray, t: np.ndarray, c: Optional[np.ndarray], loss) -> float:
     """
     :param symbols: target expressions
@@ -146,44 +134,19 @@ def replace_parameter_and_calculate(symbols: str, gradient_symbols: str, x: np.n
     :return: error, the expression containing the best parameters
     """
     c_len = symbols.count('C')
-    # C = [f'C{i}' for i in range(1, c_len + 1)]
-    # if c_len == 0:
-        # return cal_loss_expression_single(symbols, x, t, None, loss=config_s.loss), symbols
 
     if config_s.const_optimize:  # const optimize
         x0 = np.random.randn(c_len)
-        # if cal_loss_expression_single(symbols, x, t, x0, loss=config_s.loss) > 1e900:
-        #     return 1e999, process_symbol_with_C(symbols, x0)
-        # x_ans1 = minimize(lambda c: cal_loss_expression_single(symbols, x, t, c, loss=lambda cal,t: float(np.sum((cal-t)**2))),
-                        #  x0=x0, 
-                        #  method='Powell',
-                        #  options={'maxiter': 2, 'ftol': 1e-3, 'xtol': 1e-3})
-                        #  jac = lambda c: np.array([cal_expression_single(symbols, x, t, c, loss=config_s.loss)[0]]),
-        x_ans2 = minimize(lambda c: cal_loss_expression_single(symbols, x, t, c, loss=config_s.loss),
+        x_ans = minimize(lambda c: cal_loss_expression_single(symbols, x, t, c, loss=config_s.loss),
                          x0=x0, 
                          method='Powell', 
                          options={'maxiter': 10, 'ftol': 1e-3, 'xtol': 1e-3})
-        # if x_ans.fun < 10 * config_s.best_exp[1]:
-        #     x_ans = minimize(lambda c: cal_expression_single(symbols, x, t, c, loss=config_s.loss),
-        #                  x0=x_ans.x, method='Powell', options={'maxiter': 40, 'ftol': 1e-3, 'xtol': 1e-3})
-        # if x_ans.fun < 2 * config_s.best_exp[1]:
-        #     x_ans = minimize(lambda c: cal_expression_single(symbols, x, t, c, loss=config_s.loss),
-        #                  x0=x_ans.x, method='Powell', options={'maxiter': 50, 'ftol': 1e-3, 'xtol': 1e-3})
-        x0 = x_ans2.x
+        x0 = x_ans.x
         config_s.count += 1
     else:
         x0 = np.ones(c_len)
     val = cal_loss_expression_single(symbols, x, t, x0, loss=config_s.loss)
     eq_replaced_c = process_symbol_with_C(symbols, x0)
-    return val, eq_replaced_c
-    if val > 1e10:
-        return val, eq_replaced_c
-    eq_replaced_c = str(sp.simplify(sp.expand(eq_replaced_c), doit=False, inverse=True))
-    basis = eq_replaced_c.split(' + ')
-    try: 
-        val = cal_linear(basis, x, t, None, config_s.loss)
-    except:
-        pass
     return val, eq_replaced_c
 
 
@@ -212,10 +175,6 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         for i in range(1, c_len + 1):
             symbols_xpand = symbols_xpand.replace('PPP', f'C{i}', 1)
         gradient_expr = None
-    # gradient_expr = [sp.diff(symbols_xpand, c) for c in C]
-    # print(gradient_expr)
-    # if any(len(g) > 100 for g in str(gradient_expr)):
-    #     return 1e999, symbols_xpand
         fitted_expressions_per_group = {}
         total_loss = 0
         num_elements_dataset = 0
@@ -249,8 +208,8 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
             raise FinishException
         return loss, fitted_expressions_per_group
     except TimeoutError as e:
-        # pass
-        print("**Timed out** ", end="")
+        pass
+        # print("**Timed out** ", end="")
     except RuntimeError as e:
         print("**Runtime Error** ", end="")
     except OverflowError as e:
@@ -263,5 +222,5 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         print("**Syntax Error** ", end="")
     except Exception as e:
         pass
-    print(f"Equation = {symbols}.")
+    # print(f"Equation = {symbols}.")
     return 1e999, None
