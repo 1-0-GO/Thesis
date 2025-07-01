@@ -26,7 +26,7 @@
     "mcts_const": 1.4142135623730951,
     "mcts_min_visits": 10,
     "max_height": 4,
-    "max_const": 7,
+    "max_const": 4,
     "max_token": 12,
     "max_expr_num": 250,
     "token_discount": 0.99,
@@ -46,7 +46,7 @@
   "msdb": {
     "max_expr_num": 20,
     "expr_ratio": 0.1,
-    "token_ratio": 0.5,
+    "token_ratio": 0.75,
     "form_type": [
       "Add",
       "Mul",

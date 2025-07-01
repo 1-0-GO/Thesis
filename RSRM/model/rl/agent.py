@@ -101,7 +101,8 @@ class Agent:
         if self.tree.head_token == "Denom":
             exps.extend(["Denom"])
         if self.tree.const_num == self.max_parameter:
-            exps.append("C")
+            # TODO: Add other operations as well if they are in self.expression_dict.items() and use Cs (e.g. cos, sin, ...). Find a way to do it efficiently.
+            exps.extend(["Add", "Exp", "Denom"])
         for i, j in self.expression_dict.items():
             if i not in ans and j.type_name in exps:
                 ans.append(i)

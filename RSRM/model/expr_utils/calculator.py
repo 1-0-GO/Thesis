@@ -6,12 +6,10 @@ import numpy as np
 import sympy as sp
 from numpy import sqrt, e as E, exp, sin, cos, log, inf, pi, tan, cosh, sinh, tanh, nan, seterr, arcsin, arctan
 from scipy.optimize import minimize
-# import statsmodels.api as sm
 import warnings
 
 from model.config import Config
-from model.expr_utils.utils import time_limit, FinishException
-from model.expr_utils.utils import Solution
+from model.expr_utils.utils import time_limit, FinishException, Solution, complexity_calculation
 from model.expr_utils.loss import RMSE
 
 math_namespace = {
@@ -130,39 +128,6 @@ def cal_loss_expression_single(symbols: str, x: np.ndarray, t: np.ndarray, c: Op
     """
     values, loss = cal_expression_single(symbols, x, t, c, loss)
     return loss
- 
-
-def cal_linear(basis: List[str], x: np.ndarray, t: np.ndarray, c: Optional[np.ndarray], loss):
-    def build_design_matrix(x_data: np.ndarray,
-                            basis: List[str],
-                            c: Optional[np.ndarray]) -> np.ndarray:
-        """
-        Evaluate each basis expression on each row of x_data.
-        
-        x_data: shape (n_samples, n_vars); x_data[i,j] is the value for X(j+1) at sample i.
-        basis: list of strings, e.g. ['X1', 'X1/X2', 'exp(2.59*X1)']
-        c: optional vector of nonlinear parameters to be substituted via
-        the process_symbol_with_C() function.
-        """
-        zoo = inf
-        seterr(all="ignore")
-        I = complex(0, 1)
-        for idx, val in enumerate(x):
-            locals()[f'X{idx + 1}'] = val
-        local_ns = {f'X{j+1}': val for j, val in enumerate(x)}
-        all_predictors = [eval(b, {"__builtins__": {}, **math_namespace}, local_ns) for b in basis]
-        Xmat = np.column_stack(tuple(all_predictors))
-        Xmat = sm.add_constant(Xmat, prepend=True, has_constant='skip')  # adds an intercept column at the beginning, ignores if there's already a constant column
-        return Xmat
-    X = build_design_matrix(x, basis, c)
-    # fit Poisson GLM with identity link
-    poisson_id = sm.families.Poisson(link=sm.families.links.identity())
-    model = sm.GLM(t, X, family=poisson_id)
-    results = model.fit(maxiter=10, tol=1e-3)
-    cal = X @ results.params
-    val = loss(cal, t)
-    # print(val)
-    return val
 
 
 def replace_parameter_and_calculate(symbols: str, gradient_symbols: str, x: np.ndarray, t: np.ndarray, config_s: Config) -> Tuple[float, str]:
@@ -277,15 +242,15 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         loss = total_loss / num_elements_dataset
         if config_s.best_exp[1] > 1e-10 + loss:
             config_s.best_exp = eq_replaced_C, loss
-        complexity = len(symbols)
+        complexity = complexity_calculation(symbols_xpand)
         # print(eq_replaced_C, loss)
         config_s.pf.update_one(Solution(eq_replaced_C, complexity, loss))
         if loss <= config_s.reward_end_threshold:
             raise FinishException
         return loss, fitted_expressions_per_group
     except TimeoutError as e:
-        pass
-        # print("**Timed out** ", end="")
+        # pass
+        print("**Timed out** ", end="")
     except RuntimeError as e:
         print("**Runtime Error** ", end="")
     except OverflowError as e:
@@ -298,5 +263,5 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         print("**Syntax Error** ", end="")
     except Exception as e:
         pass
-    # print(f"Equation = {symbols}.")
+    print(f"Equation = {symbols}.")
     return 1e999, None

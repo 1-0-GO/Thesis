@@ -30,16 +30,16 @@ def get_expression(strs: str) -> Expression:
         "Sub": Expression(2, np.subtract, lambda x, y: f"({x})-({y})"),
         "Mul": Expression(2, np.multiply, lambda x, y: f"({x})*({y})"),
         "Div": Expression(2, np.divide, lambda x, y: f"({x})/({y})"),
-        "Pow": Expression(2, np.power, lambda x, y: f"({x})**({y})"),
+        "Pow": Expression(2, np.power, lambda x, y: f"({x})**({y})"),   # Not advised, safer to use exp
         "Dec": Expression(1, lambda x: x - 1, lambda x: f"({x})+1"),
         "Inc": Expression(1, lambda x: x + 1, lambda x: f"({x})-1"),
         "Neg": Expression(1, np.negative, lambda x: f"-({x})"),
         "Exp": Expression(1, np.exp, lambda x: f"exp(C*({x}))"),
         "Log": Expression(1, np.log, lambda x: f"log({x})"),
-        "Sin": Expression(1, np.sin, lambda x: f"sin({x})"),
-        "Cos": Expression(1, np.cos, lambda x: f"cos({x})"),
-        "Asin": Expression(1, np.arcsin, lambda x: f"arcsin({x})"),
-        "Atan": Expression(1, np.arctan, lambda x: f"arctan({x})"),
+        "Sin": Expression(1, np.sin, lambda x: f"sin(C*{x})"),
+        "Cos": Expression(1, np.cos, lambda x: f"cos(C*{x})"),
+        "Asin": Expression(1, np.arcsin, lambda x: f"arcsin(C*{x})"),
+        "Atan": Expression(1, np.arctan, lambda x: f"arctan(C*{x})"),
         "Sqrt": Expression(1, np.sqrt, lambda x: f"({x})**0.5"),
         "N2": Expression(1, np.square, lambda x: f"({x})**2"),
         "Pi": Expression(0, np.pi, 'pi'),
@@ -49,11 +49,8 @@ def get_expression(strs: str) -> Expression:
         "Denom": Expression(1, np.tanh, lambda x: f"1/( C*({x}) - 1)"),
         "Inv": Expression(1, lambda x: 1 / (x + 1e-6), lambda x: f"({x})**(-1)"),
         "Ond": Expression(2, lambda x, y: np.where(x>0, y, 0), lambda x, y: f""),
-        "Harmonic": Expression(2, lambda x, y: 2 * x * y / (x + y), lambda x, y: f"2*({x})*({y})/(({x})+({y}))"),
-        "Saturation": Expression(2, lambda x, k: k * x / (k + x), lambda x, k: f"({k})*({x})/(({k})+({x}))"),
-        "Damping": Expression(2, lambda x, k: x / (1 + k * x), lambda x, k: f"({x})/(1+({k})*({x}))"),
         "Threshold": Expression(2, lambda x, k: np.maximum(0, x - k), lambda x, k: f"max(0, ({x})-({k}))"),
-        "Logistic": Expression(1, lambda x: 1 / (1 + np.exp(-x)), lambda x: f"1/(1+exp(-({x})))")
+        "Logistic": Expression(1, lambda x: 1 / (1 + np.exp(-x)), lambda x: f"1/(1+exp(-(C*{x})))")
     }
 
     if strs in exp_dict:
@@ -152,7 +149,7 @@ class ParetoFront:
 class Solution:
     def __init__(self, equation, complexity, loss):
         self.equation = equation
-        self.fitness = (round(complexity), loss)
+        self.fitness = (complexity, loss)
     def __repr__(self):
         c, l = self.fitness
         return f"<Sol eq={self.equation!r} c={c} l={l}>"
@@ -189,17 +186,46 @@ class FinishException(Exception):
     """
     pass
 
+def complexity_calculation(equation):
+    # TODO: Fill weights according to chosen operations to support all ops. Also allow to choose weights in config.
+    weights = [
+            ('C', 1),
+            ('X', 1),
+            # ('+', 0),
+            # ('-', 0),
+            # ('*', 0),
+            ('/', 1),
+            ('**', 1),
+            ('log', 1),
+            ('exp', 1),
+            # ('sin', 1),
+            # ('cos', 1),
+    ]
+    
+    complexity = 0
+    for elem, weight in weights:
+        complexity += equation.count(elem) * weight
+    
+    return complexity
+
 
 import re
+def replace_numeric_parameters(equation):
+    # Pattern to match numbers that are NOT simple (1 decimal place or less)
+    pattern = r'(?<![a-zA-Z_.])-?(?:\d+\.\d{2,}|\d*\.\d+[eE][+-]?\d+|\d+[eE][+-]?\d+)(?![a-zA-Z_.])'
+    return re.sub(pattern, 'C', equation)
+
 def count_weighted_operations(expression):
     try:
         expression = str(simplify(sympify(expression)))
+        expression = replace_numeric_parameters(expression)
 
         # Define a regex pattern for the operations
         pattern = r'max|min|log|sin|cos|exp|\+|\-|\*\*|\*|\/|\bd+\b'
         
         # Define weights for each operation
         weights = {
+            'C': 1,
             '+': 0,
             '-': 0,
             '*': 0,
@@ -217,18 +243,19 @@ def count_weighted_operations(expression):
         operations = re.findall(pattern, expression)
 
         # Find all variables in the expression
-        vars_and_consts = re.findall(r'X\d+|C', expression)
+        vars = re.findall(r'X\d+', expression)
+        num_consts = expression.count('C')
 
         # Exclude digits that are part of variables
-        for vc in vars_and_consts:
-            expression = expression.replace(vc, '')
+        for v in vars:
+            expression = expression.replace(v, '')
         
         standalone_digits = re.findall(r'[1-9]\d*', expression)
 
         # Calculate the total weight
         total_weight = sum(weights[op] for op in operations)
         
-        return total_weight + len(vars_and_consts) + len(standalone_digits)
+        return total_weight + len(vars) + weights['C'] * num_consts + len(standalone_digits)
     except Exception:
         return np.iinfo(np.int32).max
     

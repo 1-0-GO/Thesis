@@ -44,20 +44,22 @@ class MSDB:
         """
         symbols.sort(key=lambda x: x[1])
         symbols = symbols[:self.config.msdb.max_used_expr_num]
-        st = symbols[0][1]
+        st = symbols[0][1]  # Loss of the best expression in the population
         sym_dict = defaultdict(int)
-        tm = 0
+        tm = 0  # Number of expressions with loss smaller than st / expr_ratio
         if abs(st) < 1e-99:
             return ''
         for idx, (tokens, val, symbol) in enumerate(symbols):
-            if st / val > self.config.msdb.expr_ratio or idx <= 1:
+            if st / val > self.config.msdb.expr_ratio or idx <= 1:  # Check it's within the allowed loss value
                 for s in process_symbol(symbol):
+                # if so add each subexpression (split expression by +-)
                     if not s:
                         continue
                     sym_dict[s] += symbols_count[tokens]
                 tm += 1
         syms_now = ""
         for symbol, times in sym_dict.items():
+            # Add subexpression to new big expression if the subexpression appears enough times
             if times >= tm * self.config.msdb.token_ratio:
                 if not syms_now or symbol.startswith('-'):
                     syms_now += symbol

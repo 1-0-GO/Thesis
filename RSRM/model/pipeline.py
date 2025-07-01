@@ -27,7 +27,7 @@ class Pipeline:
     
     def _transform_solution(self, sol: Solution):
         equation = str(sp.simplify(sol.equation))
-        complexity = count_weighted_operations(equation)
+        complexity = sol.fitness[0]
         loss = sol.fitness[1]
         return Solution(equation, complexity, loss)
 

@@ -686,9 +686,11 @@ def loocv(equation: Equation, X, y, preprocess=normalize_by_iqr, prefitted_param
         all_params.append(equation.fitted_params)
     return np.array(all_targets), np.array(all_predictions), all_params, used_precomputed
 
+import re
+
 def replace_numeric_parameters(equation):
-    # Pattern to match numbers that are NOT simple (1 decimal place or less)
-    pattern = r'(?<![a-zA-Z_.])-?(?:\d+\.\d{2,}|\d*\.\d+[eE][+-]?\d+|\d+[eE][+-]?\d+)(?![a-zA-Z_.])'
+    # Pattern to match numbers that are NOT simple numbers (with up to 2 decimal places)
+    pattern = r'(?<![a-zA-Z_.])-?(?:\d+\.\d{3,}|\d*\.\d+[eE][+-]?\d+|\d+[eE][+-]?\d+)(?![a-zA-Z_.])'
     return re.sub(pattern, 'C', equation)
 
 def replace_optimized_parameters(equation_str, optimized_params, precision=6):

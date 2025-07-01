@@ -13,7 +13,7 @@ class TreeBase(abc.ABC):
         super().__init__()
         self.root: Optional[TreeNode] = None
         self.node_stack: List[TreeNode] = []
-        self.const_num: int = 0
+        self.const_num: int = 1
         self.token_num: int = 0
         self.tri_tol: int = 0
         self.max_depth: int = 0
@@ -83,7 +83,7 @@ class TreeBase(abc.ABC):
             raise RuntimeError(f"{self.token_list_pre} {exp.type_name}")
         self.trim()
         self.token_num += 1
-        if exp.type_name == "C":
+        if exp.type_name in ("Add", "Exp", "Denom"):
             self.const_num += 1
         node = TreeNode(exp)
         if not self.root:
