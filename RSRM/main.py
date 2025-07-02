@@ -137,7 +137,7 @@ def main(task, num_test, json_path, output, threshold, fit, split):
     data = split_dataset(*data, fit, split)
 
     for i_test in range(num_test):
-        config.count = 0
+        config.count = [0, 0, 0]
         sys.stdout.flush()
         logger = logging.getLogger()
         logger.setLevel(logging.INFO)
@@ -162,7 +162,7 @@ def main(task, num_test, json_path, output, threshold, fit, split):
     print('final result:')
     print('success rate :', "{:.0%}".format(num_success / num_test))
     print('average discovery time is', np.round(np.mean(all_times), 3), 'seconds')
-    print('Number of equations looked at (per test): ', all_counts)
+    print('Number of equations looked at (per test) [Total, Timed out, Successful]: ', all_counts)
     df = model.pf.to_df()
     df.to_csv(output + '.csv', index=False)
     return model.pf.to_df()

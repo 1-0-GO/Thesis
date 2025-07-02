@@ -142,7 +142,6 @@ def replace_parameter_and_calculate(symbols: str, gradient_symbols: str, x: np.n
                          method='Powell', 
                          options={'maxiter': 10, 'ftol': 1e-3, 'xtol': 1e-3})
         x0 = x_ans.x
-        config_s.count += 1
     else:
         x0 = np.ones(c_len)
     val = cal_loss_expression_single(symbols, x, t, x0, loss=config_s.loss)
@@ -161,6 +160,7 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
     """
     warnings.filterwarnings('ignore')
     config_s.symbol_tol_num += 1
+    config_s.count[0] += 1
     try:
         symbols = sp.sympify(symbols)
         symbols_xpand = str(sp.expand(symbols))
@@ -206,9 +206,10 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         config_s.pf.update_one(Solution(eq_replaced_C, complexity, loss))
         if loss <= config_s.reward_end_threshold:
             raise FinishException
+        config_s.count[2] += 1
         return loss, fitted_expressions_per_group
     except TimeoutError as e:
-        pass
+        config_s.count[1] += 1
         # print("**Timed out** ", end="")
     except RuntimeError as e:
         print("**Runtime Error** ", end="")

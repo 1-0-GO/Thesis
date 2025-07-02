@@ -50,6 +50,7 @@ class Pipeline:
                                    f'loss: {self.config.best_exp[1]}',
                                    f'form: {self.expr_form}F', 
                                    f'complexity: {num_operations}',
+                                   f'Counts [Total, Timed out, Successful]: {self.config.count}',
                                    'HOF:', self.pf.to_df().to_string(float_format="{:.2f}".format)]) + '\n---\n'
                     print(s, end='')
                     self.f.write(s)
