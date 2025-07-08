@@ -4,45 +4,21 @@ from typing import Tuple, Optional, Dict, List
 
 import numpy as np
 import sympy as sp
-from numpy import sqrt, e as E, exp, sin, cos, log, inf, pi, tan, cosh, sinh, tanh, nan, seterr, arcsin, arctan
+from autograd import numpy as anp
+from autograd import grad
 from scipy.optimize import minimize
 import warnings
+import math
+from typing import Optional, Tuple
+from functools import lru_cache
+
+# === Updated Library Code with LRU Cache and Resiliency ===
+
+_MATH_FUNCS = {'exp', 'log', 'sin', 'cos', 'sqrt', 'tan', 'cosh', 'sinh',
+               'tanh', 'arcsin', 'arctan'}
 
 from model.config import Config
 from model.expr_utils.utils import time_limit, FinishException, Solution, complexity_calculation
-
-math_namespace = {
-    "sqrt": sqrt,
-    "E": E,
-    "exp": exp,
-    "sin": sin,
-    "cos": cos,
-    "log": log,
-    "inf": inf,
-    "pi": pi,
-    "tan": tan,
-    "cosh": cosh,
-    "sinh": sinh,
-    "tanh": tanh,
-    "nan": nan,
-    "arcsin": arcsin,
-    "arctan": arctan,
-}
-
-
-def process_symbol_with_C(symbols: str, c: np.ndarray) -> str:
-    """
-    Replacing parameter placeholders with real parameters
-    :param symbols: expressions
-    :param c: parameter
-    :return: Converted expression
-
-    >>>process_symbol_with_C('C1*X1+C2*X2',np.array([2.1,3.3])) -> '2.1*X1+3.3*X2'
-
-    """
-    for idx, val in enumerate(c):
-        symbols = symbols.replace(f"C{idx + 1}", str(val))
-    return symbols
 
 
 def prune_poly_c(eq: str) -> str:
@@ -69,29 +45,74 @@ def prune_poly_c(eq: str) -> str:
             break
     return eq
 
+@lru_cache(maxsize=None)
+def _make_func_from_expr_ast(symbols: str):
+    """
+    Compile a symbolic expression into a fast Python function f(X, c) -> array.
+    Supports X1...Xn, C1...Cm, and numpy math funcs in _MATH_FUNCS.
+    """
+    expr_ast = ast.parse(symbols, mode='eval').body
 
-def cal_expression_single(symbols: str, x: np.ndarray, t: np.ndarray, c: Optional[np.ndarray], loss) -> float:
+    class ReplaceNames(ast.NodeTransformer):
+        def visit_Name(self, node):
+            # Map X1... -> X[idx]
+            if node.id.startswith('X'):
+                idx = int(node.id[1:]) - 1
+                return ast.Subscript(
+                    value=ast.Name(id='X', ctx=ast.Load()),
+                    slice=ast.Index(ast.Constant(idx)), ctx=node.ctx)
+            # Map C1... -> c[idx]
+            if node.id.startswith('C'):
+                idx = int(node.id[1:]) - 1
+                return ast.Subscript(
+                    value=ast.Name(id='c', ctx=ast.Load()),
+                    slice=ast.Index(ast.Constant(idx)), ctx=node.ctx)
+            # Map math functions to numpy
+            if node.id in _MATH_FUNCS:
+                return ast.Attribute(
+                    value=ast.Name(id='np', ctx=ast.Load()),
+                    attr=node.id,
+                    ctx=node.ctx
+                )
+            return node
+
+    transformer = ReplaceNames()
+    new_body = transformer.visit(expr_ast)
+    ast.fix_missing_locations(new_body)
+
+    func_def = ast.FunctionDef(
+        name='f_expr',
+        args=ast.arguments(
+            posonlyargs=[],
+            args=[ast.arg(arg='X', annotation=None), ast.arg(arg='c', annotation=None)],
+            vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]
+        ),
+        body=[ast.Return(new_body)],
+        decorator_list=[]
+    )
+    module = ast.Module(body=[func_def], type_ignores=[])
+    ast.fix_missing_locations(module)
+    env = {'np': np}
+    exec(compile(module, '<ast_expr>', 'exec'), env, env)
+    return env['f_expr']
+
+def cal_expression_single(symbols: str,
+                          x: np.ndarray,
+                          t: np.ndarray,
+                          c: Optional[np.ndarray],
+                          loss) -> Tuple[Optional[np.ndarray], float]:
     """
-    Calculate the value of an expression with  `once` and compute the error rmse
-    :param symbols: target expressions
-    :param x: independent variable
-    :param t: result or dependent variable
-    :param c: parameter or None if there is no paramter
-    :return: Calculated value of function at all points and its associated loss or 1e999 if error occurs
+    Compute model output and loss for one expression at parameters c.
+    Uses an AST-compiled function for speed instead of eval.
+    Returns (values, loss) or (None, large_error) on failure.
     """
-    from numpy import inf, seterr
-    zoo = inf
-    seterr(all="ignore")
-    I = complex(0, 1)
-    for idx, val in enumerate(x):
-        locals()[f'X{idx + 1}'] = val
+    X = x
+    if c is None:
+        c = np.zeros(0)
+    func = _make_func_from_expr_ast(symbols)
     with warnings.catch_warnings(record=False) as caught_warnings:
         try:
-            if c is not None:
-                target = process_symbol_with_C(symbols, c)
-            else:
-                target = symbols
-            cal = eval(target)
+            cal = func(X, c)
             ans = loss(cal, t)
             if math.isinf(ans) or math.isnan(ans) or caught_warnings:
                 return None, 1e999
@@ -105,48 +126,42 @@ def cal_expression_single(symbols: str, x: np.ndarray, t: np.ndarray, c: Optiona
             return None, 4.56e9
     return cal, ans
 
+def cal_loss_expression_single(symbols: str,
+                               x: np.ndarray,
+                               t: np.ndarray,
+                               c: Optional[np.ndarray],
+                               loss) -> float:
+    _, val = cal_expression_single(symbols, x, t, c, loss)
+    return val
 
-def cal_loss_expression_single(symbols: str, x: np.ndarray, t: np.ndarray, c: Optional[np.ndarray], loss) -> float:
+def replace_parameter_and_calculate(symbols: str,
+                                    gradient_symbols: str,
+                                    x: np.ndarray,
+                                    t: np.ndarray,
+                                    config_s) -> Tuple[float, str]:
     """
-    :param symbols: target expressions
-    :param x: independent variable
-    :param t: result or dependent variable
-    :param c: parameter or None if there is no paramter
-    :return: Loss of function or 1e999 if error occurs
+    Optimize parameters in-symbols expression and return (best_loss, filled_expression).
     """
-    values, loss = cal_expression_single(symbols, x, t, c, loss)
-    return loss
-
-
-def replace_parameter_and_calculate(symbols: str, gradient_symbols: str, x: np.ndarray, t: np.ndarray, config_s: Config) -> Tuple[float, str]:
-    """
-    Calculate the value of the expression, the process is as follows
-    1. Determine whether the parameter is included or not, if not, calculate directly
-    2. Replace the parameter C in the expression with C1,C2.... CN
-    3. Initialize the parameters
-    4. Optimize the parameters if config_s.const_optimize, calculate the best parameters
-    5. Fill the expression with the best parameters and return the expression with RMSE
-
-    :param symbols: target expression, contains parameter C
-    :param x: independent variable
-    :param t: result or dependent variable
-    :param config_s: config file, used to determine whether to optimize parameters or not
-    :return: error, the expression containing the best parameters
-    """
+    # determine count of C placeholders
     c_len = symbols.count('C')
-
-    if config_s.const_optimize:  # const optimize
+    if config_s.const_optimize:
         x0 = np.random.randn(c_len)
-        x_ans = minimize(lambda c: cal_loss_expression_single(symbols, x, t, c, loss=config_s.loss),
-                         x0=x0, 
-                         method='Powell', 
-                         options={'maxiter': 10, 'ftol': 1e-3, 'xtol': 1e-3})
-        x0 = x_ans.x
+        res = minimize(lambda c: cal_loss_expression_single(symbols, x, t, c, config_s.loss),
+                       x0=x0,
+                       method='Powell',
+                       options={'maxiter': 10,
+                                'ftol': 1e-3,
+                                'xtol': 1e-3})
+        c_opt = res.x
     else:
-        x0 = np.ones(c_len)
-    val = cal_loss_expression_single(symbols, x, t, x0, loss=config_s.loss)
-    eq_replaced_c = process_symbol_with_C(symbols, x0)
-    return val, eq_replaced_c
+        c_opt = np.ones(c_len)
+
+    best_loss = cal_loss_expression_single(symbols, x, t, c_opt, config_s.loss)
+    # fill expression
+    filled = symbols
+    for idx, val in enumerate(c_opt):
+        filled = filled.replace(f"C{idx+1}", str(val))
+    return best_loss, filled
 
 
 def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tuple[float, Dict[str, str]]:

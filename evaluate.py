@@ -292,7 +292,7 @@ def extract_numeric_parameters(equation):
         list: A list of numeric parameters as floats or integers.
     """
     # Regex to match numeric parameters
-    pattern = r'(?<![a-zA-Z_.])-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?(?![a-zA-Z_.])'
+    pattern = r'(?<![a-zA-Z_.])-?(?:\d+\.\d{3,}|\d*\.\d+[eE][+-]?\d+|\d+[eE][+-]?\d+)(?![a-zA-Z_.])'
     matches = re.findall(pattern, equation)
     
     # Convert matches to numeric types (int or float)
@@ -552,6 +552,41 @@ def replace_variables(expression, var_map):
     return expression
 
 
+def complexity_calculation(equation):
+    # TODO: Add support for more operations (depending on SR engines). Maybe allow to choose weights as parameter?
+    weights = [
+            ('C', 1),
+            ('+', 0),
+            ('-', 0),
+            ('*', 0),
+            ('/', 1),
+            ('**', 1),
+    ]
+
+    weights_named = [ 
+            ('log', 1),
+            ('exp', 1),
+            ('sin', 1),
+            ('cos', 1),
+            ('cond', 1)
+    ]
+
+    complexity = 0
+
+    for elem, weight in weights_named:
+        complexity += equation.count(elem) * weight
+        equation = equation.replace(elem, ' ')
+
+    for elem, weight in weights:
+        complexity += equation.count(elem) * weight
+        equation = equation.replace(elem, ' ')
+
+    vars = re.findall(r'\b\w+\b', equation)
+    complexity += len(vars) 
+
+    return complexity
+
+
 def count_weighted_operations(expression):
     """Computes the complexity of an expression"""
     try:
@@ -598,7 +633,8 @@ def count_weighted_operations(expression):
         total_weight = sum(weights[op] for op in operations)
         
         standalone_digits = re.findall(r'[1-9]\d*', expression)
-        
+         
+         
         return total_weight + len(vars) * weights['vars'] + len(consts) * weights['const'] + len(standalone_digits)
     except Exception as e:
         return np.iinfo(np.int32).max
@@ -781,6 +817,7 @@ def plot_x_vs_y(dfs, x: str, y: str, scatter=False):
     plt.legend()
 
 def compute_pareto_frontier(df, x, y, minimize_x=True, minimize_y=True):
+    # TODO: Remove points with positive elbow and recompute until there are no points with positive elbow
     # Sort by x based on minimization or maximization
     df_sorted = df.sort_values(by=x, ascending=minimize_x)
     pareto = []

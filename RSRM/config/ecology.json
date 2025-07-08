@@ -30,7 +30,7 @@
     "max_token": 12,
     "max_expr_num": 250,
     "token_discount": 0.99,
-    "times": 20
+    "times": 7
   },
   "gp": {
     "tournsize": 10,
@@ -39,7 +39,7 @@
     "cxpb": 0.1,
     "mutpb": 0.5,
     "pops": 500,
-    "times": 6,
+    "times": 2,
     "hof_size": 20,
     "token_discount": 0.99
   },
