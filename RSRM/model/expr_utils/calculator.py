@@ -4,12 +4,14 @@ from typing import Tuple, Dict
 
 import numpy as np
 import sympy as sp
-# from autograd import numpy as anp
-# from autograd import grad
-from scipy.optimize import basinhopping, minimize
+import numexpr as ne
+from scipy.optimize import minimize
 import warnings
 import math
 from typing import Optional, Tuple
+
+ne.set_num_threads(1)
+warnings.filterwarnings("error")
 
 # === Updated Library Code with LRU Cache and Resiliency ===
 
@@ -68,72 +70,68 @@ from functools import lru_cache
 
 # 1) Cached model‐builder
 @lru_cache(maxsize=10_000)
-def _get_autograd_model(symbols: str, n_features: int, n_params: int):
+def _get_numexpr_model(symbols: str):
     """
     Turn an infix string like "C1*X1 + exp(C2*X2)" into a real
     def model(X, c): ...  that calls anp.exp etc.
     """
-    # Step 1: rewrite placeholders
-    code = symbols
-    # X1 → X[0], X2 → X[1], …
-    for i in range(n_features):
-        code = code.replace(f"X{i+1}", f"X[{i}]")
-    # C1 → c[0], …
-    for j in range(n_params):
-        code = code.replace(f"C{j+1}", f"c[{j}]")
-    # Step 2: map math funcs to anp.
-    for fn in _MATH_FUNCS:
-        code = code.replace(f"{fn}(", f"np.{fn}(")
-    # Step 3: wrap into a real def
-    fn_src = "def model(X, c):\n    return " + code
-    ns = {"np": np}
-    exec(compile(fn_src, "<model>", "exec"), ns)
-    model_py = ns["model"]
 
-    return model_py
+    return ne.NumExpr(symbols)
 
 
-def cal_expression_single(symbols: str,
-                          x: np.ndarray,
+def cal_expression_single(model, 
                           t: np.ndarray,
-                          c: np.ndarray,
-                          model,
+                          params: list,
                           loss_fn) -> Tuple[np.ndarray,float]:
     """
     Evaluate `symbols` on X, c via an Autograd-compiled model,
     then compute loss_fn(pred, t).  Returns (pred, loss).
     """
-
     try:
-        # run model (suppress numpy warnings)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            pred = model(x, c) if c is not None else model(x, np.zeros(0))
+        pred = model.run(*params)
         err = loss_fn(pred, t)
         new_err = np.asarray(err).astype(float)
         if math.isinf(new_err) or math.isnan(new_err):
             return None, 1e999
     except OverflowError:
-        return None, 1.23e9
+        return None, 1.23e99
     except ValueError:
-        return None, 2.34e9
+        return None, 2.34e99
     except NameError:
-        return None, 3.45e9
+        return None, 3.45e99
     except ArithmeticError:
-        return None, 4.56e9
+        return None, 4.56e99
 
     return pred, err
 
 
-def cal_loss_expression_single(symbols: str,
-                               x: np.ndarray,
-                               t: np.ndarray,
-                               c: np.ndarray,
-                               model,
-                               loss_fn) -> float:
-    """Just the loss portion of cal_expression_single."""
-    _, err = cal_expression_single(symbols, x, t, c, model, loss_fn)
-    return err
+def make_loss_fn(model: ne.NumExpr, x, t, loss_fn):
+    inames = model.input_names
+    # identify which positions in the arg‐tuple are X's vs C's
+    x = np.ascontiguousarray(x, dtype=np.float64)
+    t = np.ascontiguousarray(t, dtype=np.float64)
+    x_slots = []
+    c_slots = []
+    for pos, name in enumerate(inames):
+        if name.startswith("X"):
+            idx = int(name[1:]) - 1
+            x_slots.append((pos, x[idx]))
+        elif name.startswith("C"):
+            c_slots.append(pos)
+        else:
+            raise ValueError("Unknown variable name")
+    # build a single list with X's prefilled and dummy zeros for C's
+    args_list = [None] * len(inames)
+    for pos, x_arr in x_slots:
+        args_list[pos] = x_arr
+    for pos in c_slots:
+        args_list[pos] = 0.0   
+    def loss_only(c_vec):
+        # overwrite only the C slots
+        for j, pos in enumerate(c_slots):
+            args_list[pos] = c_vec[j]
+        return cal_expression_single(model, t, args_list, loss_fn)[1]
+    return loss_only
 
 
 def replace_parameter_and_calculate(symbols: str,
@@ -145,12 +143,8 @@ def replace_parameter_and_calculate(symbols: str,
     then returns (best_loss, symbols_with_values).
     """
     c_len = symbols.count("C")
-    n_features = x.shape[0]
-
-    # Loss-only wrapper for Autograd
-    model = _get_autograd_model(symbols, n_features, c_len)
-    def loss_only(c_vec):
-        return cal_loss_expression_single(symbols, x, t, c_vec, model, config_s.loss)
+    model = _get_numexpr_model(symbols)
+    loss_only = make_loss_fn(model, x, t, config_s.loss)
 
     if config_s.const_optimize and c_len > 0:
         # start from random, optimize up to 16 iters
@@ -170,7 +164,7 @@ def replace_parameter_and_calculate(symbols: str,
     else:
        return 1e999, symbols 
 
-    best_loss = cal_loss_expression_single(symbols, x, t, best_c, model, config_s.loss)
+    best_loss = loss_only(opt.x)
     filled_expr = process_symbol_with_C(symbols, best_c)
     return best_loss, filled_expr
 
@@ -235,17 +229,17 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
     except TimeoutError as e:
         config_s.count[1] += 1
         print("**Timed out** ", end="")
-    except RuntimeError as e:
-        print("**Runtime Error** ", end="")
-    except OverflowError as e:
-        print("**Overflow Error** ", end="")
-    except ValueError as e:
-        print("**Value Error** ", end="")
-    except MemoryError as e:
-        print("**Memory Error** ", end="")
-    except SyntaxError as e:
-        print("**Syntax Error** ", end="")
-    except Exception as e:
-        pass
+    # except RuntimeError as e:
+    #     print("**Runtime Error** ", end="")
+    # except OverflowError as e:
+    #     print("**Overflow Error** ", end="")
+    # except ValueError as e:
+    #     print("**Value Error** ", end="")
+    # except MemoryError as e:
+    #     print("**Memory Error** ", end="")
+    # except SyntaxError as e:
+    #     print("**Syntax Error** ", end="")
+    # except Exception as e:
+    #     pass
     print(f"Equation = {symbols}.")
     return 1e999, None
