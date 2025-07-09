@@ -1,11 +1,11 @@
 # Losses
 from scipy.special import gammaln
-import numpy as np
+from autograd import numpy as np
 
 def get_loss(name: str):
     losses_dict = {'binary': binary_cross_entropy, 'exp': exp_loss, 'RMSE': RMSE, 'robust': robust_loss,
                    'poisson_like_explink': neglog_likelihood, 'Poisson_like_nolink': neglog_likelihood_nolink,
-                   'Poisson': poisson_deviance}
+                   'Poisson': poisson_deviance2}
     if name not in losses_dict: 
         raise KeyError(f"'{name}' is not a valid loss name. Valid names are: {list(losses_dict.keys())}")
     return losses_dict[name]
@@ -42,7 +42,7 @@ def robust_loss(cal, t):
 
 def poisson_deviance(cal, t):
     eps = 1e-10
-    cal = np.asarray(cal).astype(float)
+    # cal = np.asarray(cal).astype(float)
     prediction_nonpositive_mask = cal < eps
     prediction_positive_mask = ~prediction_nonpositive_mask
 
@@ -60,7 +60,7 @@ def poisson_deviance(cal, t):
     return total_loss
 
 def poisson_deviance2(cal, t):
-    eps = 1e-10
-    cal = np.asarray(cal).astype(float)
-    cal = np.where(cal < eps, 0, cal)
+    eps = 1e-8
+    # cal = np.asarray(cal).astype(float)
+    cal = np.where(cal < eps, eps, cal)
     return np.sum(t * np.log((t + eps) / cal) - (t - cal))

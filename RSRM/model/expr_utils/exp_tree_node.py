@@ -29,7 +29,7 @@ class TreeNode:
         self.depth: int = 1
         self.parent: Optional[TreeNode] = None
         self.tri_count: int = 1 if expr.type_name in ("Cos", "Sin", "Exp", "Log", "Tanh") else 0
-        self.add_not_allowed: int = 1 if expr.type_name not in ("Add", "Mul", "Exp", "Denom") else 0    # Add only allowed in nodes Add, Mul, etc.
+        self.add_not_allowed: int = 1 if expr.type_name not in ("Add", "Mul", "Exp", "Inv") else 0    # Add only allowed in nodes Add, Mul, etc.
 
     def add_child(self, child) -> None:
         """

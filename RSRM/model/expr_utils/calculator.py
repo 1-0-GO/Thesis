@@ -1,12 +1,12 @@
 import math
 import warnings
-from typing import Tuple, Optional, Dict, List
+from typing import Tuple, Dict
 
 import numpy as np
 import sympy as sp
 from autograd import numpy as anp
 from autograd import grad
-from scipy.optimize import minimize
+from scipy.optimize import basinhopping
 import warnings
 import math
 from typing import Optional, Tuple
@@ -14,11 +14,31 @@ from functools import lru_cache
 
 # === Updated Library Code with LRU Cache and Resiliency ===
 
-_MATH_FUNCS = {'exp', 'log', 'sin', 'cos', 'sqrt', 'tan', 'cosh', 'sinh',
-               'tanh', 'arcsin', 'arctan'}
+# TODO: Have it be dynamic
+_MATH_FUNCS = {
+               'exp', 'log', 
+            #    'sqrt', 
+            #    'tanh', 'cosh', 'sinh',
+            #    'sin', 'cos', 'tan', 'arcsin', 'arctan'
+               }
 
 from model.config import Config
 from model.expr_utils.utils import time_limit, FinishException, Solution, complexity_calculation
+
+
+def process_symbol_with_C(symbols: str, c: np.ndarray) -> str:
+    
+    """
+    Replacing parameter placeholders with real parameters
+    :param symbols: expressions
+    :param c: parameter
+    :return: Converted expression
+    >>>process_symbol_with_C('C1*X1+C2*X2',np.array([2.1,3.3])) -> '2.1*X1+3.3*X2'
+    """
+    for idx, val in enumerate(c):
+        symbols = symbols.replace(f"C{idx + 1}", str(val))
+    return symbols
+
 
 
 def prune_poly_c(eq: str) -> str:
@@ -33,138 +53,136 @@ def prune_poly_c(eq: str) -> str:
         c_poly = ['C**' + str(i) + ".5" for i in range(1, 4)]
         c_poly += ['C**' + str(i) + ".25" for i in range(1, 4)]
         c_poly += ['C**' + str(i) for i in range(1, 4)]
-        c_poly += [' ' + str(i) + "*C" for i in range(1, 4)]
+        c_poly += [str(i) + "*C" for i in range(1, 4)]
+        c_poly += ["C*" + str(i) for i in range(1, 4)]
         for c in c_poly:
             if c in eq:
                 eq = eq.replace(c, 'C')
-        eq = eq.replace('-C', 'C')
         eq = eq.replace('C*C', 'C')
-        eq = eq.replace('exp(C)', 'C')
+        for func in _MATH_FUNCS:
+            eq = eq.replace(f'{func}(C)', 'C')
         eq = str(sp.sympify(eq))
         if eq == eq_l:
             break
     return eq
 
-@lru_cache(maxsize=None)
-def _make_func_from_expr_ast(symbols: str):
+# 1) Cached model‐builder
+@lru_cache(maxsize=10_000)
+def _get_autograd_model(symbols: str, n_features: int, n_params: int):
     """
-    Compile a symbolic expression into a fast Python function f(X, c) -> array.
-    Supports X1...Xn, C1...Cm, and numpy math funcs in _MATH_FUNCS.
+    Turn an infix string like "C1*X1 + exp(C2*X2)" into a real
+    def model(X, c): ...  that calls anp.exp etc.
     """
-    expr_ast = ast.parse(symbols, mode='eval').body
+    # Step 1: rewrite placeholders
+    code = symbols
+    # X1 → X[0], X2 → X[1], …
+    for i in range(n_features):
+        code = code.replace(f"X{i+1}", f"X[{i}]")
+    # C1 → c[0], …
+    for j in range(n_params):
+        code = code.replace(f"C{j+1}", f"c[{j}]")
+    # Step 2: map math funcs to anp.
+    for fn in _MATH_FUNCS:
+        code = code.replace(f"{fn}(", f"np.{fn}(")
+    # Step 3: wrap into a real def
+    fn_src = "def model(X, c):\n    return " + code
+    ns = {"np": anp}
+    exec(compile(fn_src, "<model>", "exec"), ns)
+    model_py = ns["model"]
 
-    class ReplaceNames(ast.NodeTransformer):
-        def visit_Name(self, node):
-            # Map X1... -> X[idx]
-            if node.id.startswith('X'):
-                idx = int(node.id[1:]) - 1
-                return ast.Subscript(
-                    value=ast.Name(id='X', ctx=ast.Load()),
-                    slice=ast.Index(ast.Constant(idx)), ctx=node.ctx)
-            # Map C1... -> c[idx]
-            if node.id.startswith('C'):
-                idx = int(node.id[1:]) - 1
-                return ast.Subscript(
-                    value=ast.Name(id='c', ctx=ast.Load()),
-                    slice=ast.Index(ast.Constant(idx)), ctx=node.ctx)
-            # Map math functions to numpy
-            if node.id in _MATH_FUNCS:
-                return ast.Attribute(
-                    value=ast.Name(id='np', ctx=ast.Load()),
-                    attr=node.id,
-                    ctx=node.ctx
-                )
-            return node
+    return model_py
 
-    transformer = ReplaceNames()
-    new_body = transformer.visit(expr_ast)
-    ast.fix_missing_locations(new_body)
-
-    func_def = ast.FunctionDef(
-        name='f_expr',
-        args=ast.arguments(
-            posonlyargs=[],
-            args=[ast.arg(arg='X', annotation=None), ast.arg(arg='c', annotation=None)],
-            vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]
-        ),
-        body=[ast.Return(new_body)],
-        decorator_list=[]
-    )
-    module = ast.Module(body=[func_def], type_ignores=[])
-    ast.fix_missing_locations(module)
-    env = {'np': np}
-    exec(compile(module, '<ast_expr>', 'exec'), env, env)
-    return env['f_expr']
 
 def cal_expression_single(symbols: str,
                           x: np.ndarray,
                           t: np.ndarray,
-                          c: Optional[np.ndarray],
-                          loss) -> Tuple[Optional[np.ndarray], float]:
+                          c: np.ndarray,
+                          model,
+                          loss_fn) -> Tuple[np.ndarray,float]:
     """
-    Compute model output and loss for one expression at parameters c.
-    Uses an AST-compiled function for speed instead of eval.
-    Returns (values, loss) or (None, large_error) on failure.
+    Evaluate `symbols` on X, c via an Autograd-compiled model,
+    then compute loss_fn(pred, t).  Returns (pred, loss).
     """
-    X = x
-    if c is None:
-        c = np.zeros(0)
-    func = _make_func_from_expr_ast(symbols)
-    with warnings.catch_warnings(record=False) as caught_warnings:
-        try:
-            cal = func(X, c)
-            ans = loss(cal, t)
-            if math.isinf(ans) or math.isnan(ans) or caught_warnings:
-                return None, 1e999
-        except OverflowError:  # if error occurs, return --e9 as high error.
-            return None, 1.23e9
-        except ValueError:
-            return None, 2.34e9
-        except NameError:
-            return None, 3.45e9
-        except ArithmeticError:
-            return None, 4.56e9
-    return cal, ans
+
+    try:
+        # run model (suppress numpy warnings)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            pred = model(x, c) if c is not None else model(x, np.zeros(0))
+        err = loss_fn(pred, t)
+        new_err = np.asarray(err).astype(float)
+        if math.isinf(new_err) or math.isnan(new_err):
+            return None, 1e999
+    except OverflowError:
+        return None, 1.23e9
+    except ValueError:
+        return None, 2.34e9
+    except NameError:
+        return None, 3.45e9
+    except ArithmeticError:
+        return None, 4.56e9
+
+    return pred, err
+
 
 def cal_loss_expression_single(symbols: str,
                                x: np.ndarray,
                                t: np.ndarray,
-                               c: Optional[np.ndarray],
-                               loss) -> float:
-    _, val = cal_expression_single(symbols, x, t, c, loss)
-    return val
+                               c: np.ndarray,
+                               model,
+                               loss_fn) -> float:
+    """Just the loss portion of cal_expression_single."""
+    _, err = cal_expression_single(symbols, x, t, c, model, loss_fn)
+    return err
+
 
 def replace_parameter_and_calculate(symbols: str,
                                     gradient_symbols: str,
                                     x: np.ndarray,
                                     t: np.ndarray,
-                                    config_s) -> Tuple[float, str]:
+                                    config_s) -> Tuple[float,str]:
     """
-    Optimize parameters in-symbols expression and return (best_loss, filled_expression).
+    Fits constants in `symbols` (if config_s.const_optimize),
+    then returns (best_loss, symbols_with_values).
     """
-    # determine count of C placeholders
-    c_len = symbols.count('C')
-    if config_s.const_optimize:
-        x0 = np.random.randn(c_len)
-        res = minimize(lambda c: cal_loss_expression_single(symbols, x, t, c, config_s.loss),
-                       x0=x0,
-                       method='Powell',
-                       options={'maxiter': 10,
-                                'ftol': 1e-3,
-                                'xtol': 1e-3})
-        c_opt = res.x
+    c_len = symbols.count("C")
+    n_features = x.shape[0]
+
+    # Loss-only wrapper for Autograd
+    model = _get_autograd_model(symbols, n_features, c_len)
+    def loss_only(c_vec):
+        return cal_loss_expression_single(symbols, x, t, c_vec, model, config_s.loss)
+
+    # Autograd gradient of the loss
+    grad_loss = grad(loss_only)
+
+    if config_s.const_optimize and c_len > 0:
+        # start from random, optimize up to 10 iters
+        x0 = np.abs(np.random.randn(c_len))
+         # Pass bounds and jacobian to the local minimizer
+        minim_kwargs = {
+            "method": "L-BFGS-B",
+            "bounds": [(1e-8, None)] * c_len,      # enforce c_j > 0
+            "jac": lambda c: np.array(grad_loss(c)),
+            "options": {"maxiter":100,"ftol":1e-4}
+        }
+        opt = basinhopping(
+            func=loss_only,
+            x0=x0,
+            niter=16,
+            minimizer_kwargs=minim_kwargs,
+            disp=False
+        )
+        best_c = opt.x
     else:
-        c_opt = np.ones(c_len)
+       return 1e999, symbols 
 
-    best_loss = cal_loss_expression_single(symbols, x, t, c_opt, config_s.loss)
-    # fill expression
-    filled = symbols
-    for idx, val in enumerate(c_opt):
-        filled = filled.replace(f"C{idx+1}", str(val))
-    return best_loss, filled
+    best_loss = cal_loss_expression_single(symbols, x, t, best_c, model, config_s.loss)
+    filled_expr = process_symbol_with_C(symbols, best_c)
+    return best_loss, filled_expr
 
 
-def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tuple[float, Dict[str, str]]:
+def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tuple[float, Dict[str,str]]:
     """
     Calculate the value of the expression in train and test dataset
     :param symbols: target expression, contains parameter C
@@ -180,9 +198,9 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         symbols = sp.sympify(symbols)
         symbols_xpand = str(sp.expand(symbols))
         symbols = str(symbols)
-        if symbols.count('zoo') or symbols.count('nan'):
+        if symbols.count('zoo') or symbols.count('nan') or symbols.count('I'):
             return 1e999, symbols
-        symbols_xpand = 'C*' + ' + C*'.join(symbols_xpand.split(' + '))
+        symbols_xpand = 'C*' + symbols_xpand.replace(' + ', ' + C*').replace(' - ', ' - C*')
         c_len = symbols_xpand.count('C')
         symbols_xpand = prune_poly_c(symbols_xpand)
         C = [f'C{i}' for i in range(1, c_len + 1)]
@@ -225,7 +243,7 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         return loss, fitted_expressions_per_group
     except TimeoutError as e:
         config_s.count[1] += 1
-        # print("**Timed out** ", end="")
+        print("**Timed out** ", end="")
     except RuntimeError as e:
         print("**Runtime Error** ", end="")
     except OverflowError as e:
@@ -238,5 +256,5 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         print("**Syntax Error** ", end="")
     except Exception as e:
         pass
-    # print(f"Equation = {symbols}.")
+    print(f"Equation = {symbols}.")
     return 1e999, None

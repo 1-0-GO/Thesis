@@ -9,13 +9,13 @@
     "const_optimize": true,
     "tokens": [
       "One",
+      "Neg",
       "Add",
       "Mul",
       "Inv",
       "Exp",
       "Log",
-      "Sqrt",
-      "Denom"
+      "Sqrt"
     ],
     "reward_end_threshold": 1e-99
   },
