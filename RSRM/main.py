@@ -90,6 +90,7 @@ def split_dataset(
     target_col = df_train.columns[-1]
     if target_col not in fit:
         fit = fit + [target_col]
+    maxim = df_train[fit].iloc[:, :-1].max().max()
     
     def process_df(df: pd.DataFrame) -> Tuple[Dict[Tuple[str, ...], np.ndarray], 
                                             Dict[Tuple[str, ...], np.ndarray]]:
@@ -108,7 +109,8 @@ def split_dataset(
     
     x_train, t_train = process_df(df_train)
     x_test, t_test = process_df(df_test)
-    return x_train, t_train, x_test, t_test
+    return (x_train, t_train, x_test, t_test), maxim.item()
+
 
 def main(task, num_test, json_path, output, threshold, fit, split):
     base_task = os.path.basename(task) + '_' + timestamp
@@ -134,10 +136,11 @@ def main(task, num_test, json_path, output, threshold, fit, split):
     all_fitting_cols = df_train.columns[:-1]
     if fit == []:
         fit = [c for c in all_fitting_cols if c not in split]
-    data = split_dataset(*data, fit, split)
+    data, maxim = split_dataset(*data, fit, split)
 
     for i_test in range(num_test):
         config.count = [0, 0, 0]
+        config.maxim = maxim
         sys.stdout.flush()
         logger = logging.getLogger()
         logger.setLevel(logging.INFO)

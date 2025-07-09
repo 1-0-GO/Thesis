@@ -4,17 +4,16 @@ from typing import Tuple, Dict
 
 import numpy as np
 import sympy as sp
-from autograd import numpy as anp
-from autograd import grad
+# from autograd import numpy as anp
+# from autograd import grad
 from scipy.optimize import basinhopping, minimize
 import warnings
 import math
 from typing import Optional, Tuple
-from functools import lru_cache
 
 # === Updated Library Code with LRU Cache and Resiliency ===
 
-# TODO: Have it be dynamic
+# TODO: Have math_funcs be dynamic
 _MATH_FUNCS = {
                'exp', 'log', 
             #    'sqrt', 
@@ -39,32 +38,33 @@ def process_symbol_with_C(symbols: str, c: np.ndarray) -> str:
         symbols = symbols.replace(f"C{idx + 1}", str(val))
     return symbols
 
+import re
 
+_pattern_funcs = re.compile(
+    r"(?:"
+    + "|".join(
+        rf"{fn}\(\s*C\s*\)"   # for each fn, match fn(   C   )
+        for fn in sorted(_MATH_FUNCS)
+    )
+    + r")"
+)
+_pattern_mul   = re.compile(r"\b[0-9]+(?:\.[0-9]+)?\*C\b|C\*[0-9]+(?:\.[0-9]+)?|C\*C")  
+_pattern_dup = re.compile(r'C\s*\+\s*C(?![\*/])')
 
 def prune_poly_c(eq: str) -> str:
-    """
-    Reducing multiple parameters in a parameterized expression to a single parameter
-    :param eq: expression string
-    :return: the modified expression
-    >>> prune_poly_c('C*C+C+X1*C')->"C+C*X1"
-    """
-    for i in range(5):
-        eq_l = eq
-        c_poly = ['C**' + str(i) + ".5" for i in range(1, 4)]
-        c_poly += ['C**' + str(i) + ".25" for i in range(1, 4)]
-        c_poly += ['C**' + str(i) for i in range(1, 4)]
-        c_poly += [str(i) + "*C" for i in range(1, 4)]
-        c_poly += ["C*" + str(i) for i in range(1, 4)]
-        for c in c_poly:
-            if c in eq:
-                eq = eq.replace(c, 'C')
-        eq = eq.replace('C*C', 'C')
-        for func in _MATH_FUNCS:
-            eq = eq.replace(f'{func}(C)', 'C')
-        eq = str(sp.sympify(eq))
-        if eq == eq_l:
-            break
-    return eq
+    s = eq
+    prev = None
+    while s != prev:
+        prev = s
+        # 1) Collapse functions
+        s = _pattern_funcs.sub("C", s)
+        # 2) Collapse numeric multipliers and C*C
+        s = _pattern_mul.sub("C", s)
+        # 3) Collapse duplicate C + C until stable
+        s = _pattern_dup.sub("C", s)
+    return s
+
+from functools import lru_cache
 
 # 1) Cached model‐builder
 @lru_cache(maxsize=10_000)
@@ -86,7 +86,7 @@ def _get_autograd_model(symbols: str, n_features: int, n_params: int):
         code = code.replace(f"{fn}(", f"np.{fn}(")
     # Step 3: wrap into a real def
     fn_src = "def model(X, c):\n    return " + code
-    ns = {"np": anp}
+    ns = {"np": np}
     exec(compile(fn_src, "<model>", "exec"), ns)
     model_py = ns["model"]
 
@@ -152,37 +152,20 @@ def replace_parameter_and_calculate(symbols: str,
     def loss_only(c_vec):
         return cal_loss_expression_single(symbols, x, t, c_vec, model, config_s.loss)
 
-    # Autograd gradient of the loss
-    grad_loss = grad(loss_only)
-
     if config_s.const_optimize and c_len > 0:
         # start from random, optimize up to 16 iters
-        x0 = np.exp(np.abs(np.random.randn(c_len)))
+        step = 1e-2/config_s.maxim  # So that c*X > 0.01 for all features, smaller than that is too small a bump
+        ftol = 1e-2 * config_s.best_exp[1]  # 0.01 * loss is our tolerance
+        x0 = step + np.abs(np.random.randn(c_len))
+        minim_kwargs = {
+            "method": "Powell",
+            "bounds": [(step, None)] * c_len,      # enforce c_j > 0
+            "options": {"maxiter":10,"ftol":ftol,"xtol":step}
+        }
+        loss_only(x0)
         opt = minimize(loss_only,
                        x0=x0,
-                       method='Powell',
-                       options={'maxiter': 10,
-                                'ftol': 1e-3,
-                                'xtol': 1e-3})
-
-        # Pass bounds and jacobian to the local minimizer
-        # minim_kwargs = {
-        #     "method": "L-BFGS-B",
-        #     "bounds": [(1, None)] * c_len,      # enforce c_j > 0
-        #     "jac": lambda c: np.array(grad_loss(c)),
-        #     "options": {"maxiter":100,"ftol":1e-4}
-        # }
-        # opt = basinhopping(
-        #     func=loss_only,
-        #     x0=x0,
-        #     niter=24,
-        #     # T=2.0,
-        #     minimizer_kwargs=minim_kwargs,
-        #     # stepsize=10.0,
-        #     interval=12,
-        #     # stepwise_factor=0.5,
-        #     disp=False
-        # )
+                       **minim_kwargs)
         best_c = opt.x
     else:
        return 1e999, symbols 
@@ -215,7 +198,7 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         symbols_xpand = prune_poly_c(symbols_xpand)
         symbols_xpand = symbols_xpand.replace('C', 'PPP')  # replace C with C1,C2...
         for i in range(1, c_len + 1):
-            symbols_xpand = symbols_xpand.replace('PPP', f'(log(C{i}))', 1)
+            symbols_xpand = symbols_xpand.replace('PPP', f'C{i}', 1)
         fitted_expressions_per_group = {}
         total_loss = 0
         num_elements_dataset = 0
