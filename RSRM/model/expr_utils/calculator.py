@@ -6,7 +6,7 @@ import numpy as np
 import sympy as sp
 from autograd import numpy as anp
 from autograd import grad
-from scipy.optimize import basinhopping
+from scipy.optimize import basinhopping, minimize
 import warnings
 import math
 from typing import Optional, Tuple
@@ -137,7 +137,6 @@ def cal_loss_expression_single(symbols: str,
 
 
 def replace_parameter_and_calculate(symbols: str,
-                                    gradient_symbols: str,
                                     x: np.ndarray,
                                     t: np.ndarray,
                                     config_s) -> Tuple[float,str]:
@@ -157,22 +156,33 @@ def replace_parameter_and_calculate(symbols: str,
     grad_loss = grad(loss_only)
 
     if config_s.const_optimize and c_len > 0:
-        # start from random, optimize up to 10 iters
-        x0 = np.abs(np.random.randn(c_len))
-         # Pass bounds and jacobian to the local minimizer
-        minim_kwargs = {
-            "method": "L-BFGS-B",
-            "bounds": [(1e-8, None)] * c_len,      # enforce c_j > 0
-            "jac": lambda c: np.array(grad_loss(c)),
-            "options": {"maxiter":100,"ftol":1e-4}
-        }
-        opt = basinhopping(
-            func=loss_only,
-            x0=x0,
-            niter=16,
-            minimizer_kwargs=minim_kwargs,
-            disp=False
-        )
+        # start from random, optimize up to 16 iters
+        x0 = np.exp(np.abs(np.random.randn(c_len)))
+        opt = minimize(loss_only,
+                       x0=x0,
+                       method='Powell',
+                       options={'maxiter': 10,
+                                'ftol': 1e-3,
+                                'xtol': 1e-3})
+
+        # Pass bounds and jacobian to the local minimizer
+        # minim_kwargs = {
+        #     "method": "L-BFGS-B",
+        #     "bounds": [(1, None)] * c_len,      # enforce c_j > 0
+        #     "jac": lambda c: np.array(grad_loss(c)),
+        #     "options": {"maxiter":100,"ftol":1e-4}
+        # }
+        # opt = basinhopping(
+        #     func=loss_only,
+        #     x0=x0,
+        #     niter=24,
+        #     # T=2.0,
+        #     minimizer_kwargs=minim_kwargs,
+        #     # stepsize=10.0,
+        #     interval=12,
+        #     # stepwise_factor=0.5,
+        #     disp=False
+        # )
         best_c = opt.x
     else:
        return 1e999, symbols 
@@ -203,11 +213,9 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         symbols_xpand = 'C*' + symbols_xpand.replace(' + ', ' + C*').replace(' - ', ' - C*')
         c_len = symbols_xpand.count('C')
         symbols_xpand = prune_poly_c(symbols_xpand)
-        C = [f'C{i}' for i in range(1, c_len + 1)]
         symbols_xpand = symbols_xpand.replace('C', 'PPP')  # replace C with C1,C2...
         for i in range(1, c_len + 1):
-            symbols_xpand = symbols_xpand.replace('PPP', f'C{i}', 1)
-        gradient_expr = None
+            symbols_xpand = symbols_xpand.replace('PPP', f'(log(C{i}))', 1)
         fitted_expressions_per_group = {}
         total_loss = 0
         num_elements_dataset = 0
@@ -216,7 +224,7 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
             x_train = config_s.x[group]
             t_train = config_s.t[group]
             with time_limit(t_limit):
-                loss_train, eq_replaced_C = replace_parameter_and_calculate(symbols_xpand, gradient_expr, x_train, t_train, config_s)
+                loss_train, eq_replaced_C = replace_parameter_and_calculate(symbols_xpand, x_train, t_train, config_s)
                 fitted_expressions_per_group[group] = eq_replaced_C
                 # Losses are already weighted by size of dataset by using sum instead of mean
                 total_loss += loss_train
