@@ -143,6 +143,7 @@ def replace_parameter_and_calculate(symbols: str,
     then returns (best_loss, symbols_with_values).
     """
     c_len = symbols.count("C")
+    # return 0.1 + np.abs(np.random.randn() - c_len*0.5), process_symbol_with_C(symbols, np.random.randn(c_len))
     model = _get_numexpr_model(symbols)
     loss_only = make_loss_fn(model, x, t, config_s.loss)
 
@@ -151,6 +152,7 @@ def replace_parameter_and_calculate(symbols: str,
         step = 1e-2/config_s.maxim  # So that c*X > 0.01 for all features, smaller than that is too small a bump
         ftol = 1e-2 * config_s.best_exp[1]  # 0.01 * loss is our tolerance
         x0 = step + np.abs(np.random.randn(c_len))
+        # return loss_only(x0), process_symbol_with_C(symbols, x0)
         minim_kwargs = {
             "method": "Powell",
             "bounds": [(step, None)] * c_len,      # enforce c_j > 0
