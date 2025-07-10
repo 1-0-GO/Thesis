@@ -4,13 +4,12 @@ from typing import Tuple, Dict
 
 import numpy as np
 import sympy as sp
-import numexpr as ne
+import ast
 from scipy.optimize import minimize
 import warnings
 import math
 from typing import Optional, Tuple
 
-ne.set_num_threads(1)
 warnings.filterwarnings("error")
 
 # === Updated Library Code with LRU Cache and Resiliency ===
@@ -70,25 +69,58 @@ from functools import lru_cache
 
 # 1) Cached model‐builder
 @lru_cache(maxsize=10_000)
-def _get_numexpr_model(symbols: str):
-    """
-    Turn an infix string like "C1*X1 + exp(C2*X2)" into a real
-    def model(X, c): ...  that calls anp.exp etc.
-    """
+def _get_ast_model(expr):
+    expr_ast = ast.parse(expr, mode='eval').body
+    class ReplaceNames(ast.NodeTransformer):
+        def visit_Name(self, node):
+            if node.id.startswith('X'):
+                idx = int(node.id[1:]) - 1
+                return ast.Subscript(
+                    value=ast.Name(id='X', ctx=ast.Load()),
+                    slice=ast.Index(ast.Constant(idx)), ctx=node.ctx)
+            if node.id.startswith('C'):
+                idx = int(node.id[1:]) - 1
+                return ast.Subscript(
+                    value=ast.Name(id='c', ctx=ast.Load()),
+                    slice=ast.Index(ast.Constant(idx)), ctx=node.ctx)
+            # Map function names to numpy.<name>
+            if node.id in _MATH_FUNCS:
+                return ast.Attribute(value=ast.Name(id='np', ctx=ast.Load()),
+                                     attr=node.id, ctx=node.ctx)
+            return node
 
-    return ne.NumExpr(symbols)
+    transformer = ReplaceNames()
+    new_body = transformer.visit(expr_ast)
+    ast.fix_missing_locations(new_body)
+
+    func_def = ast.FunctionDef(
+        name='f_ext',
+        args=ast.arguments(
+            posonlyargs=[],
+            args=[ast.arg(arg='X', annotation=None), ast.arg(arg='c', annotation=None)],
+            vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+        body=[ast.Return(new_body)],
+        decorator_list=[]
+    )
+    module = ast.Module(body=[func_def], type_ignores=[])
+    ast.fix_missing_locations(module)
+
+    env = {'np': np}
+    exec(compile(module, '<ast_ext>', 'exec'), env, env)
+    return env['f_ext']
 
 
 def cal_expression_single(model, 
                           t: np.ndarray,
-                          params: list,
+                          x,
+                          c_vec,
                           loss_fn) -> Tuple[np.ndarray,float]:
     """
     Evaluate `symbols` on X, c via an Autograd-compiled model,
     then compute loss_fn(pred, t).  Returns (pred, loss).
     """
     try:
-        pred = model.run(*params)
+        pred = model(x, c_vec)
         err = loss_fn(pred, t)
         new_err = np.asarray(err).astype(float)
         if math.isinf(new_err) or math.isnan(new_err):
@@ -105,32 +137,10 @@ def cal_expression_single(model,
     return pred, err
 
 
-def make_loss_fn(model: ne.NumExpr, x, t, loss_fn):
-    inames = model.input_names
-    # identify which positions in the arg‐tuple are X's vs C's
-    x = np.ascontiguousarray(x, dtype=np.float64)
-    t = np.ascontiguousarray(t, dtype=np.float64)
-    x_slots = []
-    c_slots = []
-    for pos, name in enumerate(inames):
-        if name.startswith("X"):
-            idx = int(name[1:]) - 1
-            x_slots.append((pos, x[idx]))
-        elif name.startswith("C"):
-            c_slots.append(pos)
-        else:
-            raise ValueError("Unknown variable name")
-    # build a single list with X's prefilled and dummy zeros for C's
-    args_list = [None] * len(inames)
-    for pos, x_arr in x_slots:
-        args_list[pos] = x_arr
-    for pos in c_slots:
-        args_list[pos] = 0.0   
+def make_loss_fn(model, x, t, loss_fn):
     def loss_only(c_vec):
         # overwrite only the C slots
-        for j, pos in enumerate(c_slots):
-            args_list[pos] = c_vec[j]
-        return cal_expression_single(model, t, args_list, loss_fn)[1]
+        return cal_expression_single(model, t, x, c_vec, loss_fn)[1]
     return loss_only
 
 
@@ -143,7 +153,7 @@ def replace_parameter_and_calculate(symbols: str,
     then returns (best_loss, symbols_with_values).
     """
     c_len = symbols.count("C")
-    model = _get_numexpr_model(symbols)
+    model = _get_ast_model(symbols)
     loss_only = make_loss_fn(model, x, t, config_s.loss)
 
     if config_s.const_optimize and c_len > 0:
@@ -151,12 +161,12 @@ def replace_parameter_and_calculate(symbols: str,
         step = 1e-2/config_s.maxim  # So that c*X > 0.01 for all features, smaller than that is too small a bump
         ftol = 1e-2 * config_s.best_exp[1]  # 0.01 * loss is our tolerance
         x0 = step + np.abs(np.random.randn(c_len))
+        return loss_only(x0), process_symbol_with_C(symbols, x0)
         minim_kwargs = {
             "method": "Powell",
             "bounds": [(step, None)] * c_len,      # enforce c_j > 0
             "options": {"maxiter":10,"ftol":ftol,"xtol":step}
         }
-        loss_only(x0)
         opt = minimize(loss_only,
                        x0=x0,
                        **minim_kwargs)
