@@ -84,7 +84,7 @@ def cal_expression_single(model,
                           params: list,
                           loss_fn) -> Tuple[np.ndarray,float]:
     """
-    Evaluate `symbols` on X, c via an numexpr-compiled model,
+    Evaluate `symbols` on X, c via an Autograd-compiled model,
     then compute loss_fn(pred, t).  Returns (pred, loss).
     """
     try:
@@ -194,18 +194,16 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         for i in range(1, c_len + 1):
             symbols_xpand = symbols_xpand.replace('PPP', f'C{i}', 1)
         fitted_expressions_per_group = {}
-        total_loss = 0
-        num_elements_dataset = 0
+        all_losses = []
         # Train
         for group in config_s.x:
             x_train = config_s.x[group]
             t_train = config_s.t[group]
             with time_limit(t_limit):
                 loss_train, eq_replaced_C = replace_parameter_and_calculate(symbols_xpand, x_train, t_train, config_s)
-                fitted_expressions_per_group[group] = eq_replaced_C
+                # fitted_expressions_per_group[group] = eq_replaced_C
                 # Losses are already weighted by size of dataset by using sum instead of mean
-                total_loss += loss_train
-                num_elements_dataset += t_train.shape[0]
+                all_losses.append(loss_train)
         # Test
         # for group in config_s.x_:
         #     x_test = config_s.x[group]
@@ -213,11 +211,9 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         #     eq_replaced_C = fitted_expressions_per_group[group]
         #     with time_limit(t_limit):
         #         loss_test, eq_replaced_C = replace_parameter_and_calculate(eq_replaced_C, x_test, t_test, config_s)
-        #         total_loss += loss_test
-        #         num_elements_dataset += t_test.shape[0]
-
+        #         total_loss.append(loss_test)
         # Loss
-        loss = total_loss / num_elements_dataset
+        loss = max(all_losses)
         if config_s.best_exp[1] > 1e-10 + loss:
             config_s.best_exp = eq_replaced_C, loss
         complexity = complexity_calculation(symbols_xpand)
@@ -242,5 +238,5 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         print("**Syntax Error** ", end="")
     except Exception as e:
         pass
-    # print(f"Equation = {symbols}.")
+    print(f"Equation = {symbols}.")
     return 1e999, None
