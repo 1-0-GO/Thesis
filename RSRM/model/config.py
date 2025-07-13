@@ -1,5 +1,3 @@
-from json import load
-
 import numpy as np
 
 from model.expr_utils.utils import expression_dict, ParetoFront
@@ -8,7 +6,7 @@ from model.expr_utils.loss import get_loss
 class Config:
     def __init__(self):
         self.symbol_tol_num = 0
-        self.best_exp = None, 1e999
+        self.best_exp = '', 1e999
         self.pf = ParetoFront()
 
         self.x = None
@@ -126,10 +124,8 @@ class Config:
         self.config_gp()
         self.config_base()
 
-    def json(self, filepath):
-        with open(filepath, 'r') as f:
-            js = load(f)
-            self.config_base(**js['base'])
-            self.config_mcts(**js['mcts'])
-            self.config_gp(**js['gp'])
-            self.config_msdb(**js['msdb'])
+    def from_dict(self, js):
+        self.config_base(**js['base'])
+        self.config_mcts(**js['mcts'])
+        self.config_gp(**js['gp'])
+        self.config_msdb(**js['msdb'])

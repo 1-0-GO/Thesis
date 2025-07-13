@@ -57,8 +57,9 @@ def get_expression(strs: str) -> Expression:
         return exp_dict[strs]
     return Expression(0, None if strs == 'C' else int(strs[1:]), strs)
 
-def format_numbers_in_string(text, precision=2):
-    pattern = r'(?<![a-zA-Z_.])-?(?:\d*\.\d+|\d+\.\d+|\d+[eE][+-]?\d+)(?![a-zA-Z_.])'
+def format_numbers_in_string(text, precision=4):
+    # Pattern to match numbers that are NOT simple numbers (with up to 3 decimal places)
+    pattern = r'(?<![a-zA-Z_.])-?(?:\d+\.\d{4,}|\d*\.\d+[eE][+-]?\d+|\d+[eE][+-]?\d+)(?![a-zA-Z_.])'
     def format_match(match):
         return f"{float(match.group()):.{precision}f}"
     
@@ -142,7 +143,7 @@ class ParetoFront:
     def to_df(self):
         data = []
         for sol in self:
-            equation_ = format_numbers_in_string(sol.equation)
+            equation_ = format_numbers_in_string(sol.equation)  # Rounds constants in equation for readibility
             data.append({"equation": equation_, "complexity": sol.fitness[0], "loss": sol.fitness[1]})
         return pd.DataFrame(data)
 

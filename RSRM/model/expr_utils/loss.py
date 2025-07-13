@@ -1,6 +1,6 @@
 # Losses
 from scipy.special import gammaln
-from autograd import numpy as np
+import numpy as np
 
 def get_loss(name: str):
     losses_dict = {'binary': binary_cross_entropy, 'exp': exp_loss, 'RMSE': RMSE, 'robust': robust_loss,

@@ -8,6 +8,7 @@ from typing import List, Tuple, Dict
 import numpy as np
 from pandas import read_csv
 import pandas as pd
+import json
 
 # Add the current file's directory to Python's module search path, 
 # allowing imports of local modules from this script's location.
@@ -95,24 +96,35 @@ def split_dataset(
     def process_df(df: pd.DataFrame) -> Tuple[Dict[Tuple[str, ...], np.ndarray], 
                                             Dict[Tuple[str, ...], np.ndarray]]:
         """Process dataframe into split dictionaries"""
-        if not split:
-            data = df[fit].values.T
-            return {tuple(): np.asarray(data[:-1])}, {tuple(): np.asarray(data[-1])}
-            
         x = {}
         t = {}
-        for group, df_group in df.groupby(split):
-            group_data = df_group[fit].values.T
-            x[group] = np.asarray(group_data[:-1])  # Features
-            t[group] = np.asarray(group_data[-1])    # Targets
+        if not split:
+            data = df[fit].values.T
+            key = ("ALL",)
+            x[key] = np.asarray(data[:-1])
+            t[key] = np.asarray(data[-1])
+        else:
+            for group, df_group in df.groupby(split):
+                group_data = df_group[fit].values.T
+                group_key = group if isinstance(group, tuple) else (group,)
+                x[group_key] = np.asarray(group_data[:-1])  # Features
+                t[group_key] = np.asarray(group_data[-1])    # Targets
         return x, t
     
     x_train, t_train = process_df(df_train)
     x_test, t_test = process_df(df_test)
     return (x_train, t_train, x_test, t_test), maxim.item()
 
+# Merge overrides
+def deep_update(d, u):
+    for k, v in u.items():
+        if isinstance(v, dict) and isinstance(d.get(k), dict):
+            deep_update(d[k], v)
+        else:
+            d[k] = v
+    return d
 
-def main(task, num_test, json_path, output, threshold, fit, split):
+def main(task, num_test, json_path, output, threshold, fit, split, extra_args={}):
     base_task = os.path.basename(task) + '_' + timestamp
     if output == "":
         output_dir = os.path.dirname(os.path.join(OUTPUT_DIR, task))
@@ -122,7 +134,10 @@ def main(task, num_test, json_path, output, threshold, fit, split):
     output = os.path.join(output_dir, base_task)
 
     config = Config()
-    config.json(json_path)
+    with open(json_path) as f:
+        js = json.load(f)
+        js = deep_update(js, extra_args)
+    config.from_dict(js)
     config.output = output
     model = Pipeline(config=config)
 
@@ -158,7 +173,8 @@ def main(task, num_test, json_path, output, threshold, fit, split):
 
     output_file = open(output + '_FINAL.txt', 'w')
     for eq in all_eqs:
-        output_file.write(eq + '\n')
+        if eq is not None:
+            output_file.write(eq + '\n')
     output_file.close()
 
     print()
@@ -168,7 +184,7 @@ def main(task, num_test, json_path, output, threshold, fit, split):
     print('Number of equations looked at (per test) [Total, Timed out, Successful]: ', all_counts)
     df = model.pf.to_df()
     df.to_csv(output + '.csv', index=False)
-    return model.pf.to_df()
+    return df
 
 if __name__ == '__main__':
     args = parser.parse_args()

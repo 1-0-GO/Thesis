@@ -2,7 +2,7 @@ from collections import Counter
 from time import time
 from typing import Tuple
 
-from model.expr_utils.utils import FinishException, count_weighted_operations, Solution, ParetoFront
+from model.expr_utils.utils import FinishException, complexity_calculation, Solution, ParetoFront
 from model.rl.utils import get_expression_and_reward
 from model.ga.ga import GAPipeline
 from model.rl.rl import RLPipeline
@@ -44,7 +44,7 @@ class Pipeline:
             tm_start = time()
             for tms in range(self.config.epoch):
                 if self.config.verbose:
-                    num_operations = count_weighted_operations(self.config.best_exp[0])
+                    num_operations = complexity_calculation(self.config.best_exp[0])
                     s = '\n'.join([f'Episode: {tms + 1}/{self.config.epoch}', f'time: {round(time() - tm_start, 2)}s', 
                                    f'expression: {self.config.best_exp[0]}', 
                                    f'loss: {self.config.best_exp[1]}',

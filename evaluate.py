@@ -558,7 +558,7 @@ def complexity_calculation(equation):
             ('C', 1),
             ('+', 0),
             ('-', 0),
-            ('*', 0),
+            ('*', 0),   # Technically this functions is incorrect because ** matches as * twice. It's corrected in Sucellus (I use regular pattern)
             ('/', 1),
             ('**', 1),
     ]

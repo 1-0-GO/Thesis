@@ -50,7 +50,7 @@ _pattern_funcs = re.compile(
     )
     + r")"
 )
-_pattern_mul   = re.compile(r"\b[0-9]+(?:\.[0-9]+)?\*C\b|C\*[0-9]+(?:\.[0-9]+)?|C\*C")  
+_pattern_mul   = re.compile(r"\b[0-9]+(?:\.[0-9]+)?\*C\b|C\*[0-9]+(?:\.[0-9]+)?|C\*C|C\*\*[0-9]+(?:\.[0-9]+)?")  
 _pattern_dup = re.compile(r'C\s*\+\s*C(?![\*/])')
 
 def prune_poly_c(eq: str) -> str:
@@ -84,7 +84,7 @@ def cal_expression_single(model,
                           params: list,
                           loss_fn) -> Tuple[np.ndarray,float]:
     """
-    Evaluate `symbols` on X, c via an Autograd-compiled model,
+    Evaluate `symbols` on X, c via an numexpr-compiled model,
     then compute loss_fn(pred, t).  Returns (pred, loss).
     """
     try:
@@ -143,16 +143,14 @@ def replace_parameter_and_calculate(symbols: str,
     then returns (best_loss, symbols_with_values).
     """
     c_len = symbols.count("C")
-    # return 0.1 + np.abs(np.random.randn() - c_len*0.5), process_symbol_with_C(symbols, np.random.randn(c_len))
     model = _get_numexpr_model(symbols)
     loss_only = make_loss_fn(model, x, t, config_s.loss)
 
     if config_s.const_optimize and c_len > 0:
-        # start from random, optimize up to 16 iters
+        # start from random, optimize up to 10 iters
         step = 1e-2/config_s.maxim  # So that c*X > 0.01 for all features, smaller than that is too small a bump
-        ftol = 1e-2 * config_s.best_exp[1]  # 0.01 * loss is our tolerance
+        ftol = 1e-2 * config_s.best_exp[1]  # Our tolerance is 1% of best_loss
         x0 = step + np.abs(np.random.randn(c_len))
-        # return loss_only(x0), process_symbol_with_C(symbols, x0)
         minim_kwargs = {
             "method": "Powell",
             "bounds": [(step, None)] * c_len,      # enforce c_j > 0
@@ -217,6 +215,7 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         #         loss_test, eq_replaced_C = replace_parameter_and_calculate(eq_replaced_C, x_test, t_test, config_s)
         #         total_loss += loss_test
         #         num_elements_dataset += t_test.shape[0]
+
         # Loss
         loss = total_loss / num_elements_dataset
         if config_s.best_exp[1] > 1e-10 + loss:
@@ -231,17 +230,17 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
     except TimeoutError as e:
         config_s.count[1] += 1
         print("**Timed out** ", end="")
-    # except RuntimeError as e:
-    #     print("**Runtime Error** ", end="")
-    # except OverflowError as e:
-    #     print("**Overflow Error** ", end="")
-    # except ValueError as e:
-    #     print("**Value Error** ", end="")
-    # except MemoryError as e:
-    #     print("**Memory Error** ", end="")
-    # except SyntaxError as e:
-    #     print("**Syntax Error** ", end="")
-    # except Exception as e:
-    #     pass
-    print(f"Equation = {symbols}.")
+    except RuntimeError as e:
+        print("**Runtime Error** ", end="")
+    except OverflowError as e:
+        print("**Overflow Error** ", end="")
+    except ValueError as e:
+        print("**Value Error** ", end="")
+    except MemoryError as e:
+        print("**Memory Error** ", end="")
+    except SyntaxError as e:
+        print("**Syntax Error** ", end="")
+    except Exception as e:
+        pass
+    # print(f"Equation = {symbols}.")
     return 1e999, None
