@@ -150,7 +150,9 @@ def make_callback(threshold, func):
 def replace_parameter_and_calculate(symbols: str,
                                     x: np.ndarray,
                                     t: np.ndarray,
-                                    config_s: Config) -> Tuple[float,str]:
+                                    config_s: Config,
+                                    target_loss: float,
+                                    x0: float = None) -> Tuple[float,str]:
     """
     Fits constants in `symbols` (if config_s.const_optimize),
     then returns (best_loss, symbols_with_values).
@@ -159,14 +161,15 @@ def replace_parameter_and_calculate(symbols: str,
     c_len = symbols.count("C")
     model = _get_numexpr_model(symbols)
     loss_only = make_loss_fn(model, x, t, config_s.loss)
+    # Only worth it if we're using groups (only way for it to save time)
     if config_s.group:
-        callback = make_callback(threshold=config_s.target_loss, func=loss_only)
+        callback = make_callback(threshold=target_loss, func=loss_only)
         minim_kwargs["callback"] = callback
 
     if config_s.const_optimize and c_len > 0:
         # start from random, optimize up to 10 iters
         lower_bound = 1e-2/config_s.maxim  # Maximum X sets the scale. c*X > 0.01 for all features, smaller than that is too small a c
-        x0 = lower_bound + np.abs(np.random.randn(c_len))
+        x0 = x0 if x0 is not None else lower_bound + np.abs(np.random.randn(c_len))
         minim_kwargs.update({
             "method": "Powell",
             "bounds": [(lower_bound, None)] * c_len,      # enforce c_j > lower_bound
@@ -185,8 +188,7 @@ def replace_parameter_and_calculate(symbols: str,
     else:
        return 1e999, symbols 
 
-    filled_expr = process_symbol_with_C(symbols, best_c)
-    return best_loss, filled_expr
+    return best_loss, best_c
 
 
 def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tuple[float, Dict[str,str]]:
@@ -214,49 +216,42 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         for i in range(1, c_len + 1):
             symbols_xpand = symbols_xpand.replace('PPP', f'C{i}', 1)
         fitted_expressions_per_group = {}
-        all_losses = []
-        # Train
-        for group in config_s.x:
+        loss = config_s.target_loss
+        worst_group = None
+        for group in sorted(config_s.worst_group_counts, key=config_s.worst_group_counts.get, reverse=True):
             x_train = config_s.x[group]
             t_train = config_s.t[group]
             with time_limit(t_limit):
-                loss_train, eq_replaced_C = replace_parameter_and_calculate(symbols_xpand, x_train, t_train, config_s)
+                loss_train, best_c = replace_parameter_and_calculate(symbols_xpand, x_train, t_train, config_s, loss)
+                eq_replaced_C = process_symbol_with_C(symbols_xpand, best_c)
                 # fitted_expressions_per_group[group] = eq_replaced_C
-                # Losses are already weighted by size of dataset by using sum instead of mean
-                all_losses.append(loss_train)
-        # Test
-        # for group in config_s.x_:
-        #     x_test = config_s.x[group]
-        #     t_test = config_s.t[group]
-        #     eq_replaced_C = fitted_expressions_per_group[group]
-        #     with time_limit(t_limit):
-        #         loss_test, eq_replaced_C = replace_parameter_and_calculate(eq_replaced_C, x_test, t_test, config_s)
-        #         total_loss.append(loss_test)
-        # Loss
-        loss = max(all_losses)
+                if loss_train > 1e-10 + loss:
+                    loss = loss_train
+                    worst_group = group
+        config_s.worst_group_counts[worst_group] += 1
         if config_s.best_exp[1] > 1e-10 + loss:
             config_s.best_exp = eq_replaced_C, loss
         complexity = complexity_calculation(symbols_xpand)
         # print(eq_replaced_C, loss)
         config_s.pf.update_one(Solution(eq_replaced_C, complexity, loss))
-        if config_s.target_is_set and loss <= config_s.target_loss:
+        if loss <= config_s.target_loss:
             raise FinishException
         config_s.count[2] += 1
         return loss, fitted_expressions_per_group
     except TimeoutError as e:
         config_s.count[1] += 1
         print("**Timed out** ", end="")
-    # except RuntimeError as e:
-    #     print("**Runtime Error** ", end="")
-    # except OverflowError as e:
-    #     print("**Overflow Error** ", end="")
-    # except ValueError as e:
-    #     print("**Value Error** ", end="")
-    # except MemoryError as e:
-    #     print("**Memory Error** ", end="")
-    # except SyntaxError as e:
-    #     print("**Syntax Error** ", end="")
-    # except Exception as e:
-    #     pass
+    except RuntimeError as e:
+        print("**Runtime Error** ", end="")
+    except OverflowError as e:
+        print("**Overflow Error** ", end="")
+    except ValueError as e:
+        print("**Value Error** ", end="")
+    except MemoryError as e:
+        print("**Memory Error** ", end="")
+    except SyntaxError as e:
+        print("**Syntax Error** ", end="")
+    except Exception as e:
+        pass
     print(f"Equation = {symbols}.")
     return 1e999, None

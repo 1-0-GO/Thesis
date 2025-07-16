@@ -63,6 +63,7 @@ class Config:
 
     def set_input(self, *, x, t, x_, t_):
         self.group = len(x) > 1
+        self.worst_group_counts = {k:0 for k in x.keys()}
         self.x = x
         self.x_ = x_
         self.t = t
@@ -82,7 +83,6 @@ class Config:
         self.tokens = tokens
         self.verbose = verbose
         self.target_loss = target_loss
-        self.target_is_set = target_loss > 1e-10
 
     def config_mcts(self, *, max_const=8, q_learning_rate=1e-3, mcts_const=2 ** 0.5,
                     max_height=5, max_token=20, max_expr_num=250, token_discount=0.99, times=100,

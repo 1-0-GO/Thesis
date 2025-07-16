@@ -1,6 +1,5 @@
 from collections import Counter
 from time import time
-from typing import Tuple
 
 from model.expr_utils.utils import FinishException, complexity_calculation, Solution, ParetoFront
 from model.rl.utils import get_expression_and_reward
@@ -9,7 +8,6 @@ from model.rl.rl import RLPipeline
 from model.msdb.msdb import MSDB
 from model.config import Config
 import sympy as sp
-import numpy as np
 import os
 
 class Pipeline:
@@ -28,7 +26,7 @@ class Pipeline:
     
     def _transform_solution(self, sol: Solution):
         equation = str(sp.simplify(sol.equation))
-        complexity = sol.fitness[0]
+        complexity = complexity_calculation(equation)
         loss = sol.fitness[1]
         return Solution(equation, complexity, loss)
 
@@ -90,24 +88,6 @@ class Pipeline:
                 discovered_eqs = [self._transform_solution(sol) for sol in self.config.pf]
                 self.pf.update(discovered_eqs)
                 self.config.pf.clear()
-                if not self.config.target_is_set:
-                    # Estimate a reasonable target loss to stop the continuous optimization step early
-                    current_best_loss = self.config.best_exp[1]
-
-                    # Update the moving average of relative improvement per episode
-                    if tms != 0:
-                        relative_improvement = (last_loss - current_best_loss) / last_loss
-                        avg_relative_improvement = 0.8 * avg_relative_improvement + 0.2 * relative_improvement
-                    else:
-                        avg_relative_improvement = 0.5  # Conservative initial estimate
-
-                    # Project the final loss by compounding expected improvements over remaining epochs
-                    epochs_remaining = self.config.epoch - tms
-                    self.config.target_loss = np.exp(np.log(current_best_loss) - epochs_remaining * np.log(1 + avg_relative_improvement))
-
-                    last_loss = current_best_loss
-                    print('___HEY___')
-                    print(self.config.target_loss, avg_relative_improvement, current_best_loss)
         except FinishException:
             pass
         discovered_eqs = [self._transform_solution(sol) for sol in self.config.pf]

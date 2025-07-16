@@ -14,8 +14,7 @@
       "Threshold",
       "Inverse",
       "Logistic"
-    ],
-    "early_stop": 1e-10
+    ]
   },
   "mcts": {
     "q_learning_rate": 0.001,
