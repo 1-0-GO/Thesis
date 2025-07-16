@@ -4,7 +4,6 @@ import numpy as np
 
 def get_loss(name: str):
     losses_dict = {'binary': binary_cross_entropy, 'exp': exp_loss, 'RMSE': RMSE, 'robust': robust_loss,
-                   'poisson_like_explink': neglog_likelihood, 'Poisson_like_nolink': neglog_likelihood_nolink,
                    'Poisson': poisson_deviance2}
     if name not in losses_dict: 
         raise KeyError(f"'{name}' is not a valid loss name. Valid names are: {list(losses_dict.keys())}")

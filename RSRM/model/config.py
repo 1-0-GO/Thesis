@@ -16,7 +16,7 @@ class Config:
         self.has_const = None
         self.const_optimize = None
         self.exp_dict = None
-        self.reward_end_threshold = None
+        self.target_loss = None
         self.verbose = None
         self.num_of_var = None
         self.epoch = None
@@ -24,7 +24,6 @@ class Config:
 
         class mcts:
             def __init__(self):
-                self.reward_end_threshold = None
                 self.q_learning_rate = None
                 self.q_learning_discount = None
                 self.q_learning_epsilon = None
@@ -63,6 +62,7 @@ class Config:
         self.msdb = msdb()
 
     def set_input(self, *, x, t, x_, t_):
+        self.group = len(x) > 1
         self.x = x
         self.x_ = x_
         self.t = t
@@ -71,7 +71,7 @@ class Config:
         self.exp_dict = expression_dict(self.tokens, self.num_of_var, self.has_const)
 
     def config_base(self, *, epoch=100, loss='RMSE', has_const=True, const_optimize=True, tokens=None, verbose=True,
-                    reward_end_threshold=1e-10):
+                    target_loss=1e-10):
         if not tokens:
             tokens = ["Add", "Sub", "Mul", "Div", 'Exp', 'Log', 'Cos', 'Sin']
         self.epoch = epoch
@@ -81,7 +81,8 @@ class Config:
         self.has_const = has_const
         self.tokens = tokens
         self.verbose = verbose
-        self.reward_end_threshold = reward_end_threshold
+        self.target_loss = target_loss
+        self.target_is_set = target_loss > 1e-10
 
     def config_mcts(self, *, max_const=8, q_learning_rate=1e-3, mcts_const=2 ** 0.5,
                     max_height=5, max_token=20, max_expr_num=250, token_discount=0.99, times=100,

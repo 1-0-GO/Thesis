@@ -133,38 +133,58 @@ def make_loss_fn(model: ne.NumExpr, x, t, loss_fn):
         return cal_expression_single(model, t, args_list, loss_fn)[1]
     return loss_only
 
+class EarlyStopper(Exception): 
+    def __init__(self, xk, loss):
+        self.xk = xk
+        self.loss = loss
+        super().__init__("Early stopping triggered")
+
+def make_callback(threshold, func):
+    def callback(xk):
+        loss = func(xk)
+        if loss < threshold:
+            raise EarlyStopper(xk, loss)
+    return callback
+
 
 def replace_parameter_and_calculate(symbols: str,
                                     x: np.ndarray,
                                     t: np.ndarray,
-                                    config_s) -> Tuple[float,str]:
+                                    config_s: Config) -> Tuple[float,str]:
     """
     Fits constants in `symbols` (if config_s.const_optimize),
     then returns (best_loss, symbols_with_values).
     """
+    minim_kwargs = {}
     c_len = symbols.count("C")
     model = _get_numexpr_model(symbols)
     loss_only = make_loss_fn(model, x, t, config_s.loss)
+    if config_s.group:
+        callback = make_callback(threshold=config_s.target_loss, func=loss_only)
+        minim_kwargs["callback"] = callback
 
     if config_s.const_optimize and c_len > 0:
         # start from random, optimize up to 10 iters
-        step = 1e-2/config_s.maxim  # So that c*X > 0.01 for all features, smaller than that is too small a bump
-        ftol = 1e-2 * config_s.best_exp[1]  # Our tolerance is 1% of best_loss
-        x0 = step + np.abs(np.random.randn(c_len))
-        minim_kwargs = {
+        lower_bound = 1e-2/config_s.maxim  # Maximum X sets the scale. c*X > 0.01 for all features, smaller than that is too small a c
+        x0 = lower_bound + np.abs(np.random.randn(c_len))
+        minim_kwargs.update({
             "method": "Powell",
-            "bounds": [(step, None)] * c_len,      # enforce c_j > 0
-            "options": {"maxiter":10,"ftol":ftol,"xtol":step}
-        }
+            "bounds": [(lower_bound, None)] * c_len,      # enforce c_j > lower_bound
+            "options": {"maxiter": 10, "ftol": 1e-3}
+        })
         loss_only(x0)
-        opt = minimize(loss_only,
-                       x0=x0,
-                       **minim_kwargs)
-        best_c = opt.x
+        try:
+            opt = minimize(loss_only,
+                        x0=x0,
+                        **minim_kwargs)
+            best_c = opt.x
+            best_loss = opt.fun
+        except EarlyStopper as e:
+            best_c = e.xk
+            best_loss = e.loss
     else:
        return 1e999, symbols 
 
-    best_loss = loss_only(opt.x)
     filled_expr = process_symbol_with_C(symbols, best_c)
     return best_loss, filled_expr
 
@@ -219,24 +239,24 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         complexity = complexity_calculation(symbols_xpand)
         # print(eq_replaced_C, loss)
         config_s.pf.update_one(Solution(eq_replaced_C, complexity, loss))
-        if loss <= config_s.reward_end_threshold:
+        if config_s.target_is_set and loss <= config_s.target_loss:
             raise FinishException
         config_s.count[2] += 1
         return loss, fitted_expressions_per_group
     except TimeoutError as e:
         config_s.count[1] += 1
         print("**Timed out** ", end="")
-    except RuntimeError as e:
-        print("**Runtime Error** ", end="")
-    except OverflowError as e:
-        print("**Overflow Error** ", end="")
-    except ValueError as e:
-        print("**Value Error** ", end="")
-    except MemoryError as e:
-        print("**Memory Error** ", end="")
-    except SyntaxError as e:
-        print("**Syntax Error** ", end="")
-    except Exception as e:
-        pass
+    # except RuntimeError as e:
+    #     print("**Runtime Error** ", end="")
+    # except OverflowError as e:
+    #     print("**Overflow Error** ", end="")
+    # except ValueError as e:
+    #     print("**Value Error** ", end="")
+    # except MemoryError as e:
+    #     print("**Memory Error** ", end="")
+    # except SyntaxError as e:
+    #     print("**Syntax Error** ", end="")
+    # except Exception as e:
+    #     pass
     print(f"Equation = {symbols}.")
     return 1e999, None

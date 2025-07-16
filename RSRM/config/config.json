@@ -16,8 +16,7 @@
       "Log",
       "Cos",
       "Sin"
-    ],
-    "reward_end_threshold": 1e-05
+    ]
   },
   "mcts": {
     "q_learning_rate": 0.001,
