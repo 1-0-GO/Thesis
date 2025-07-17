@@ -154,7 +154,7 @@ def main(task, num_test, json_path, output, threshold, fit, split, extra_args={}
     data, maxim = split_dataset(*data, fit, split)
 
     for i_test in range(num_test):
-        config.count = [0, 0, 0]
+        config.counter = [0, 0, 0]
         config.maxim = maxim
         sys.stdout.flush()
         logger = logging.getLogger()
@@ -166,7 +166,7 @@ def main(task, num_test, json_path, output, threshold, fit, split, extra_args={}
             num_success += 1
         all_times.append(time.time() - start_time)
         all_eqs.append(result[0])
-        all_counts.append(config.count)
+        all_counts.append(config.counter)
         
 
     model.f.close()

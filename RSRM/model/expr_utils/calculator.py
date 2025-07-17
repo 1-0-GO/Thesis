@@ -4,14 +4,15 @@ from typing import Tuple, Dict
 
 import numpy as np
 import sympy as sp
+from sympy import Add, Mul, Pow, Expr
 import numexpr as ne
 from scipy.optimize import minimize
 import warnings
 import math
 from typing import Optional, Tuple
+from functools import lru_cache
 
 ne.set_num_threads(1)
-warnings.filterwarnings("error")
 
 # === Updated Library Code with LRU Cache and Resiliency ===
 
@@ -66,10 +67,7 @@ def prune_poly_c(eq: str) -> str:
         s = _pattern_dup.sub("C", s)
     return s
 
-from functools import lru_cache
 
-# 1) Cached model‐builder
-@lru_cache(maxsize=10_000)
 def _get_numexpr_model(symbols: str):
     """
     Turn an infix string like "C1*X1 + exp(C2*X2)" into a real
@@ -133,6 +131,7 @@ def make_loss_fn(model: ne.NumExpr, x, t, loss_fn):
         return cal_expression_single(model, t, args_list, loss_fn)[1]
     return loss_only
 
+
 class EarlyStopper(Exception): 
     def __init__(self, xk, loss):
         self.xk = xk
@@ -186,9 +185,77 @@ def replace_parameter_and_calculate(symbols: str,
             best_c = e.xk
             best_loss = e.loss
     else:
-       return 1e999, symbols 
+       return 1e999, x0 
 
     return best_loss, best_c
+
+
+def expr_to_canonical(expr: Expr):
+    """Recursively convert a sympy expression to a canonical tuple."""
+    if expr.is_Atom:
+        return (str(expr),)
+    elif isinstance(expr, Add):
+        args = frozenset(expr_to_canonical(arg) for arg in expr.args)
+        return ('add', args)
+    elif isinstance(expr, Mul):
+        args = sorted(expr_to_canonical(arg) for arg in expr.args)
+        return ('mul', tuple(args))
+    elif isinstance(expr, Pow):
+        base_can = expr_to_canonical(expr.base)
+        exp_can = expr_to_canonical(expr.exp)
+        return ('Pow', (base_can, exp_can))
+    else:
+        # Other functions like exp(...)
+        func_name = expr.func.__name__
+        args = tuple(expr_to_canonical(arg) for arg in expr.args)
+        return (func_name, args)
+
+
+class CalculatorArgs:
+    def __init__(self, symbols: str, config_s, t_limit):
+        self.symbols = symbols
+        self.config_s = config_s
+        self.t_limit = t_limit
+        self.canonical_expression = expr_to_canonical(sp.sympify(symbols))
+    def __hash__(self):
+        return hash(self.canonical_expression)
+    def __eq__(self, other):
+        if not isinstance(other, CalculatorArgs):
+            return NotImplemented
+        return self.canonical_expression == other.canonical_expression
+    def __repr__(self):
+        return str(self.canonical_expression)
+
+
+@lru_cache(maxsize=10_000)
+def cached_cal_expression(cal_args: CalculatorArgs) -> Tuple[float, Dict[str,str]]:
+    symbols = cal_args.symbols
+    config_s = cal_args.config_s
+    t_limit = cal_args.t_limit
+    config_s.counter[0] += 1
+    # fitted_expressions_per_group = {}
+    loss = config_s.target_loss
+    worst_group = None
+    for group in sorted(config_s.worst_group_counts, key=config_s.worst_group_counts.get, reverse=True):
+        x_train = config_s.x[group]
+        t_train = config_s.t[group]
+        with time_limit(t_limit):
+            loss_train, best_c = replace_parameter_and_calculate(symbols, x_train, t_train, config_s, loss)
+            eq_replaced_C = process_symbol_with_C(symbols, best_c)
+            # fitted_expressions_per_group[group] = eq_replaced_C
+            if loss_train > 1e-10 + loss:
+                loss = loss_train
+                worst_group = group
+    config_s.worst_group_counts[worst_group] += 1
+    if config_s.best_exp[1] > 1e-10 + loss:
+        config_s.best_exp = eq_replaced_C, loss
+    complexity = complexity_calculation(symbols)
+    # print(eq_replaced_C, loss)
+    config_s.pf.update_one(Solution(eq_replaced_C, complexity, loss))
+    if loss <= config_s.target_loss:
+        raise FinishException
+    config_s.counter[2] += 1
+    return loss
 
 
 def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tuple[float, Dict[str,str]]:
@@ -201,8 +268,6 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
     :return: sum of the error of expression in train and test dataset
     """
     warnings.filterwarnings('ignore')
-    config_s.symbol_tol_num += 1
-    config_s.count[0] += 1
     try:
         symbols = sp.sympify(symbols)
         symbols_xpand = str(sp.expand(symbols))
@@ -215,31 +280,10 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         symbols_xpand = symbols_xpand.replace('C', 'PPP')  # replace C with C1,C2...
         for i in range(1, c_len + 1):
             symbols_xpand = symbols_xpand.replace('PPP', f'C{i}', 1)
-        fitted_expressions_per_group = {}
-        loss = config_s.target_loss
-        worst_group = None
-        for group in sorted(config_s.worst_group_counts, key=config_s.worst_group_counts.get, reverse=True):
-            x_train = config_s.x[group]
-            t_train = config_s.t[group]
-            with time_limit(t_limit):
-                loss_train, best_c = replace_parameter_and_calculate(symbols_xpand, x_train, t_train, config_s, loss)
-                eq_replaced_C = process_symbol_with_C(symbols_xpand, best_c)
-                # fitted_expressions_per_group[group] = eq_replaced_C
-                if loss_train > 1e-10 + loss:
-                    loss = loss_train
-                    worst_group = group
-        config_s.worst_group_counts[worst_group] += 1
-        if config_s.best_exp[1] > 1e-10 + loss:
-            config_s.best_exp = eq_replaced_C, loss
-        complexity = complexity_calculation(symbols_xpand)
-        # print(eq_replaced_C, loss)
-        config_s.pf.update_one(Solution(eq_replaced_C, complexity, loss))
-        if loss <= config_s.target_loss:
-            raise FinishException
-        config_s.count[2] += 1
-        return loss, fitted_expressions_per_group
+        cal_args = CalculatorArgs(symbols_xpand, config_s, t_limit)
+        return cached_cal_expression(cal_args), symbols
     except TimeoutError as e:
-        config_s.count[1] += 1
+        config_s.counter[1] += 1
         print("**Timed out** ", end="")
     except RuntimeError as e:
         print("**Runtime Error** ", end="")
@@ -254,4 +298,4 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
     except Exception as e:
         pass
     print(f"Equation = {symbols}.")
-    return 1e999, None
+    return 1e999, symbols

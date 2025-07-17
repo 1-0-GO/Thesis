@@ -2,6 +2,7 @@ from collections import Counter
 from time import time
 
 from model.expr_utils.utils import FinishException, complexity_calculation, Solution, ParetoFront
+from model.expr_utils.calculator import cached_cal_expression
 from model.rl.utils import get_expression_and_reward
 from model.ga.ga import GAPipeline
 from model.rl.rl import RLPipeline
@@ -26,7 +27,7 @@ class Pipeline:
     
     def _transform_solution(self, sol: Solution):
         equation = str(sp.simplify(sol.equation))
-        complexity = complexity_calculation(equation)
+        complexity = sol.fitness[0]
         loss = sol.fitness[1]
         return Solution(equation, complexity, loss)
 
@@ -49,13 +50,14 @@ class Pipeline:
                                    f'loss: {self.config.best_exp[1]}',
                                    f'form: {self.expr_form}F', 
                                    f'complexity: {num_operations}',
-                                   f'Counts [Total, Timed out, Successful]: {self.config.count}',
+                                   f'Counts [Total, Timed out, Successful]: {self.config.counter}',
                                    'HOF:', self.pf.to_df().to_string(float_format="{:.2f}".format)]) + '\n---\n'
                     print(s, end='')
                     self.f.write(s)
                     self.f.flush()
                     os.fsync(self.f.fileno())
-                # all_pops = set()
+                if tms % 10 == 0:
+                    cached_cal_expression.cache_clear()
                 if tms % 25 == 0:
                     self.rl1.clear()
                     sym_tol1.clear()
@@ -65,26 +67,20 @@ class Pipeline:
                 if tms % 10 <= 8:
                     self.rl1.run()
                     pop = self.rl1.get_expressions()
-                    # all_pops.update([tuple(p) for p in pop])
                     pop = self.ga1.ga_play(pop)
-                    # all_pops.update([tuple(p) for p in pop])
                     sym_tol1 += pop
                     self.change_expr_form(pop)
                 if tms % 10 >= 5:
                     self.rl2.run()
                     pop = self.rl2.get_expressions()
-                    # all_pops.update([tuple(p) for p in pop])
                     sym_tol2 += pop
                     pop = self.ga2.ga_play(pop)
-                    # all_pops.update([tuple(p) for p in pop])
                     sym_tol2 += pop
                 if tms % 10 >= 7:
                     pop = self.ga2.ga_play(sym_tol2)
                     sym_tol2 += pop
-                    # all_pops.update([tuple(p) for p in pop])
                 if tms % 10 == 5:
                     pop = self.ga1.ga_play(sym_tol1)
-                    # all_pops.update([tuple(p) for p in pop])
                 discovered_eqs = [self._transform_solution(sol) for sol in self.config.pf]
                 self.pf.update(discovered_eqs)
                 self.config.pf.clear()
