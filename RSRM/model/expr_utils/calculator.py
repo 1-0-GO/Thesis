@@ -71,7 +71,7 @@ def prune_poly_c(eq: str) -> str:
 def _get_numexpr_model(symbols: str):
     """
     Turn an infix string like "C1*X1 + exp(C2*X2)" into a real
-    def model(X, c): ...  that calls anp.exp etc.
+    def model(X, c): ...  that calls np.exp etc.
     """
 
     return ne.NumExpr(symbols)
@@ -82,7 +82,7 @@ def cal_expression_single(model,
                           params: list,
                           loss_fn) -> Tuple[np.ndarray,float]:
     """
-    Evaluate `symbols` on X, c via an Autograd-compiled model,
+    Evaluate `symbols` on X, c via an numexpr-compiled model,
     then compute loss_fn(pred, t).  Returns (pred, loss).
     """
     try:
