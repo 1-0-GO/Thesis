@@ -1,6 +1,4 @@
 {
-  "train_set": "None",
-  "test_set": "None",
   "base": {
     "verbose": true,
     "epoch": 10,
@@ -14,7 +12,8 @@
       "Threshold",
       "Inverse",
       "Logistic"
-    ]
+    ],
+    "reward_end_threshold": 1e-10
   },
   "mcts": {
     "q_learning_rate": 0.001,

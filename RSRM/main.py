@@ -88,7 +88,7 @@ def split_dataset(
     Dict[Tuple[str, ...], np.ndarray]   # t_test
 ]:
     # Ensure target column is included
-    target_col = df_train.columns[-1]
+    target_col = df_train[[c for c in df_train.columns if c not in split]].columns[-1]
     if target_col not in fit:
         fit = fit + [target_col]
     maxim = df_train[fit].iloc[:, :-1].max().max()
@@ -169,13 +169,10 @@ def main(task, num_test, json_path, output, threshold, fit, split, extra_args={}
         all_counts.append(config.counter)
         
 
-    model.f.close()
-
-    output_file = open(output + '_FINAL.txt', 'w')
-    for eq in all_eqs:
-        if eq is not None:
-            output_file.write(eq + '\n')
-    output_file.close()
+    with open(output + '_FINAL.txt', 'w') as output_file:
+        for eq in all_eqs:
+            if eq is not None:
+                output_file.write(eq + '\n')
 
     print()
     print('final result:')

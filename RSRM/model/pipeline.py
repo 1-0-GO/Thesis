@@ -13,8 +13,7 @@ import os
 
 class Pipeline:
     def __init__(self, config: Config = None):
-        file_name = config.output + '_HOF.txt' 
-        self.f = open(file_name, 'w')
+        self.file_name = config.output + '_HOF.txt' 
         self.config: Config = config
         if config is None:
             self.config = Config()
@@ -38,66 +37,64 @@ class Pipeline:
         self.ga1, self.ga2 = GAPipeline(self.config), GAPipeline(self.config)
         self.rl1, self.rl2 = RLPipeline(self.config), RLPipeline(self.config)
         self.msdb = MSDB(config_s=self.config)
-        try:
-            sym_tol1 = []
-            sym_tol2 = []
-            tm_start = time()
-            for tms in range(self.config.epoch):
-                if self.config.verbose:
-                    num_operations = complexity_calculation(self.config.best_exp[0])
-                    s = '\n'.join([f'Episode: {tms + 1}/{self.config.epoch}', f'time: {round(time() - tm_start, 2)}s', 
-                                   f'expression: {self.config.best_exp[0]}', 
-                                   f'loss: {self.config.best_exp[1]}',
-                                   f'form: {self.expr_form}F', 
-                                   f'complexity: {num_operations}',
-                                   f'Counts [Total, Timed out, Successful]: {self.config.counter}',
-                                   'HOF:', self.pf.to_df().to_string(float_format="{:.2f}".format)]) + '\n---\n'
-                    print(s, end='')
-                    self.f.write(s)
-                    self.f.flush()
-                    os.fsync(self.f.fileno())
-                if tms % 10 == 0:
-                    cached_cal_expression.cache_clear()
-                if tms % 25 == 0:
-                    self.rl1.clear()
-                    sym_tol1.clear()
-                if tms % 30 == 0:
-                    self.rl2.clear()
-                    sym_tol2.clear()
-                if tms % 10 <= 8:
-                    self.rl1.run()
-                    pop = self.rl1.get_expressions()
-                    pop = self.ga1.ga_play(pop)
-                    sym_tol1 += pop
-                    self.change_expr_form(pop)
-                if tms % 10 >= 5:
-                    self.rl2.run()
-                    pop = self.rl2.get_expressions()
-                    sym_tol2 += pop
-                    pop = self.ga2.ga_play(pop)
-                    sym_tol2 += pop
-                if tms % 10 >= 7:
-                    pop = self.ga2.ga_play(sym_tol2)
-                    sym_tol2 += pop
-                if tms % 10 == 5:
-                    pop = self.ga1.ga_play(sym_tol1)
-                discovered_eqs = [self._transform_solution(sol) for sol in self.config.pf]
-                self.pf.update(discovered_eqs)
-                self.config.pf.clear()
-        except FinishException:
-            pass
-        discovered_eqs = [self._transform_solution(sol) for sol in self.config.pf]
-        self.pf.update(discovered_eqs)
-        self.config.pf.clear()
-        print('-- FINAL RESULTS --')
-        s = '\n'.join([f'Episode: {tms + 1}/{self.config.epoch}', f'time: {round(time() - tm_start, 2)}s', 
-                                   f'loss: {self.config.best_exp[1]}',
-                                   f'form: {self.expr_form}F',
-                                   'HOF:', self.pf.to_df().to_string(float_format="{:.2f}".format)]) + '\n---\n'
-        print(s, end='')
-        self.f.write(s)
-        self.f.flush()
-        os.fsync(self.f.fileno())
+        with open(self.file_name, 'w') as f:
+            try:
+                sym_tol1 = []
+                sym_tol2 = []
+                tm_start = time()
+                for tms in range(self.config.epoch):
+                    if self.config.verbose:
+                        num_operations = complexity_calculation(self.config.best_exp[0])
+                        s = '\n'.join([f'Episode: {tms + 1}/{self.config.epoch}', f'time: {round(time() - tm_start, 2)}s', 
+                                    f'expression: {self.config.best_exp[0]}', 
+                                    f'loss: {self.config.best_exp[1]}',
+                                    f'form: {self.expr_form}F', 
+                                    f'complexity: {num_operations}',
+                                    f'Counts [Total, Timed out, Successful]: {self.config.counter}',
+                                    'HOF:', self.pf.to_df().to_string(float_format="{:.2f}".format)]) + '\n---\n'
+                        print(s, end='')
+                        f.write(s)
+                        f.flush()
+                        os.fsync(f.fileno())
+                    if tms % 25 == 0:
+                        self.rl1.clear()
+                        sym_tol1.clear()
+                    if tms % 30 == 0:
+                        self.rl2.clear()
+                        sym_tol2.clear()
+                    if tms % 10 <= 8:
+                        self.rl1.run()
+                        pop = self.rl1.get_expressions()
+                        pop = self.ga1.ga_play(pop)
+                        sym_tol1 += pop
+                        self.change_expr_form(pop)
+                    if tms % 10 >= 5:
+                        self.rl2.run()
+                        pop = self.rl2.get_expressions()
+                        sym_tol2 += pop
+                        pop = self.ga2.ga_play(pop)
+                        sym_tol2 += pop
+                    if tms % 10 >= 7:
+                        pop = self.ga2.ga_play(sym_tol2)
+                        sym_tol2 += pop
+                    if tms % 10 == 5:
+                        pop = self.ga1.ga_play(sym_tol1)
+                    discovered_eqs = [self._transform_solution(sol) for sol in self.config.pf]
+                    self.pf.update(discovered_eqs)
+                    self.config.pf.clear()
+                    cached_cal_expression.cache_clear() # At the end of each episode, clear cache
+            except FinishException:
+                pass
+            discovered_eqs = [self._transform_solution(sol) for sol in self.config.pf]
+            self.pf.update(discovered_eqs)
+            self.config.pf.clear()
+            print('-- FINAL RESULTS --')
+            s = '\n'.join([f'Episode: {tms + 1}/{self.config.epoch}', f'time: {round(time() - tm_start, 2)}s', 
+                                    f'loss: {self.config.best_exp[1]}',
+                                    f'form: {self.expr_form}F',
+                                    'HOF:', self.pf.to_df().to_string(float_format="{:.2f}".format)]) + '\n---\n'
+            print(s, end='')
+            f.write(s)
         return self.config.best_exp
 
     def change_expr_form(self, pops):

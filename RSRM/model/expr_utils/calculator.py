@@ -87,10 +87,12 @@ def cal_expression_single(model,
     """
     try:
         pred = model.run(*params)
+        if pred.shape == ():
+            pred = np.repeat(pred.item(), len(t))
         err = loss_fn(pred, t)
         new_err = np.asarray(err).astype(float)
         if math.isinf(new_err) or math.isnan(new_err):
-            return None, 1e999
+            return None, 1e99
     except OverflowError:
         return None, 1.23e99
     except ValueError:
@@ -166,7 +168,6 @@ def replace_parameter_and_calculate(symbols: str,
         minim_kwargs["callback"] = callback
 
     if config_s.const_optimize and c_len > 0:
-        # start from random, optimize up to 10 iters
         lower_bound = 1e-2/config_s.maxim  # Maximum X sets the scale. c*X > 0.01 for all features, smaller than that is too small a c
         x0 = x0 if x0 is not None else lower_bound + np.abs(np.random.randn(c_len))
         minim_kwargs.update({
@@ -185,7 +186,7 @@ def replace_parameter_and_calculate(symbols: str,
             best_c = e.xk
             best_loss = e.loss
     else:
-       return 1e999, x0 
+       return 1e99, x0 
 
     return best_loss, best_c
 
@@ -228,7 +229,7 @@ class CalculatorArgs:
 
 
 @lru_cache(maxsize=10_000)
-def cached_cal_expression(cal_args: CalculatorArgs) -> Tuple[float, Dict[str,str]]:
+def cached_cal_expression(cal_args: CalculatorArgs) -> float:
     symbols = cal_args.symbols
     config_s = cal_args.config_s
     t_limit = cal_args.t_limit
@@ -236,52 +237,27 @@ def cached_cal_expression(cal_args: CalculatorArgs) -> Tuple[float, Dict[str,str
     # fitted_expressions_per_group = {}
     loss = config_s.target_loss
     worst_group = None
-    for group in sorted(config_s.worst_group_counts, key=config_s.worst_group_counts.get, reverse=True):
-        x_train = config_s.x[group]
-        t_train = config_s.t[group]
-        with time_limit(t_limit):
-            loss_train, best_c = replace_parameter_and_calculate(symbols, x_train, t_train, config_s, loss)
-            eq_replaced_C = process_symbol_with_C(symbols, best_c)
-            # fitted_expressions_per_group[group] = eq_replaced_C
-            if loss_train > 1e-10 + loss:
-                loss = loss_train
-                worst_group = group
-    config_s.worst_group_counts[worst_group] += 1
-    if config_s.best_exp[1] > 1e-10 + loss:
-        config_s.best_exp = eq_replaced_C, loss
-    complexity = complexity_calculation(symbols)
-    # print(eq_replaced_C, loss)
-    config_s.pf.update_one(Solution(eq_replaced_C, complexity, loss))
-    if loss <= config_s.target_loss:
-        raise FinishException
-    config_s.counter[2] += 1
-    return loss
-
-
-def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tuple[float, Dict[str,str]]:
-    """
-    Calculate the value of the expression in train and test dataset
-    :param symbols: target expression, contains parameter C
-    :param config_s: config file, used to determine whether to optimize parameters or not and store independent variable
-     and result
-    :param t_limit: time limit of calculation in because of time in optimization
-    :return: sum of the error of expression in train and test dataset
-    """
-    warnings.filterwarnings('ignore')
-    try:
-        symbols = sp.sympify(symbols)
-        symbols_xpand = str(sp.expand(symbols))
-        symbols = str(symbols)
-        if symbols.count('zoo') or symbols.count('nan') or symbols.count('I'):
-            return 1e999, symbols
-        symbols_xpand = 'C*' + symbols_xpand.replace(' + ', ' + C*').replace(' - ', ' - C*')
-        c_len = symbols_xpand.count('C')
-        symbols_xpand = prune_poly_c(symbols_xpand)
-        symbols_xpand = symbols_xpand.replace('C', 'PPP')  # replace C with C1,C2...
-        for i in range(1, c_len + 1):
-            symbols_xpand = symbols_xpand.replace('PPP', f'C{i}', 1)
-        cal_args = CalculatorArgs(symbols_xpand, config_s, t_limit)
-        return cached_cal_expression(cal_args), symbols
+    try: 
+        for group in sorted(config_s.worst_group_counts, key=config_s.worst_group_counts.get, reverse=True):
+            x_train = config_s.x[group]
+            t_train = config_s.t[group]
+            with time_limit(t_limit):
+                loss_train, best_c = replace_parameter_and_calculate(symbols, x_train, t_train, config_s, loss)
+                eq_replaced_C = process_symbol_with_C(symbols, best_c)
+                # fitted_expressions_per_group[group] = eq_replaced_C
+                if loss_train > 1e-10 + loss:
+                    loss = loss_train
+                    worst_group = group
+        if config_s.best_exp[1] > 1e-10 + loss:
+            config_s.best_exp = eq_replaced_C, loss
+        complexity = complexity_calculation(symbols)
+        # print(eq_replaced_C, loss)
+        config_s.pf.update_one(Solution(eq_replaced_C, complexity, loss))
+        if loss <= config_s.target_loss:
+            raise FinishException
+        config_s.worst_group_counts[worst_group] += 1
+        config_s.counter[2] += 1
+        return loss
     except TimeoutError as e:
         config_s.counter[1] += 1
         print("**Timed out** ", end="")
@@ -295,7 +271,30 @@ def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tupl
         print("**Memory Error** ", end="")
     except SyntaxError as e:
         print("**Syntax Error** ", end="")
-    except Exception as e:
-        pass
-    print(f"Equation = {symbols}.")
-    return 1e999, symbols
+    print(f"Equation = {symbols}")
+    return 9e99
+
+
+def cal_expression(symbols: str, config_s: Config, t_limit: float = 0.2) -> Tuple[float, str]:
+    """
+    Calculate the value of the expression in train and test dataset
+    :param symbols: target expression, contains parameter C
+    :param config_s: config file, used to determine whether to optimize parameters or not and store independent variable
+     and result
+    :param t_limit: time limit of calculation in because of time in optimization
+    :return: sum of the error of expression in train and test dataset
+    """
+    warnings.filterwarnings('ignore')
+    symbols = sp.sympify(symbols)
+    symbols_xpand = str(sp.expand(symbols))
+    symbols = str(symbols)
+    if symbols.count('zoo') or symbols.count('nan') or symbols.count('I'):
+        return 1e999, symbols
+    symbols_xpand = 'C*' + symbols_xpand.replace(' + ', ' + C*').replace(' - ', ' - C*')
+    c_len = symbols_xpand.count('C')
+    symbols_xpand = prune_poly_c(symbols_xpand)
+    symbols_xpand = symbols_xpand.replace('C', 'PPP')  # replace C with C1,C2...
+    for i in range(1, c_len + 1):
+        symbols_xpand = symbols_xpand.replace('PPP', f'C{i}', 1)
+    cal_args = CalculatorArgs(symbols_xpand, config_s, t_limit)
+    return cached_cal_expression(cal_args), symbols

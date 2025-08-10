@@ -1,10 +1,8 @@
 {
-  "train_set": "None",
-  "test_set": "None",
   "base": {
     "verbose": true,
-    "epoch": 40,
-    "loss": "Poisson",
+    "epoch": 10,
+    "loss": "PoissonDeviance",
     "has_const": false,
     "const_optimize": true,
     "tokens": [
@@ -16,7 +14,8 @@
       "Exp",
       "Log",
       "Sqrt"
-    ]
+    ],
+    "target_loss": 1e-99
   },
   "mcts": {
     "q_learning_rate": 0.001,
@@ -24,21 +23,21 @@
     "q_learning_epsilon": 0.6,
     "mcts_const": 1.4142135623730951,
     "mcts_min_visits": 10,
-    "max_height": 4,
+    "max_height": 5,
     "max_const": 5,
     "max_token": 12,
     "max_expr_num": 250,
     "token_discount": 0.99,
-    "times": 7
+    "times": 10
   },
   "gp": {
     "tournsize": 10,
-    "max_height": 6,
+    "max_height": 10,
     "max_const": 5,
     "cxpb": 0.1,
     "mutpb": 0.5,
     "pops": 500,
-    "times": 2,
+    "times": 3,
     "hof_size": 20,
     "token_discount": 0.99
   },
